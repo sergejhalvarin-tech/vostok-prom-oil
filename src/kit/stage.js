@@ -74,9 +74,25 @@ export function createStage(vp, {cam, tgt, names = {}, onPick, pick = true} = {}
 
   const water = makeWater(sunDir, FOG);
   scene.add(water.mesh);
+  // Поверхность моря снизу: светлый «потолок», уходящий в туман.
+  const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(9000, 9000).rotateX(Math.PI / 2),
+    new THREE.MeshBasicMaterial({color: 0x8fd8ea, transparent: true, opacity: 0.9}));
+  ceiling.position.set(900, 0.05, 0);
+  scene.add(ceiling);
+  // Среды: над водой — небо и дымка; в воде — бирюзовая мгла; ниже дна — тёмный «музейный» фон разреза.
+  const UW = new THREE.Color(0x0b5468), DEEP = new THREE.Color(0x0a0e13);
+  let medium = '';
+  function setMedium(y) {
+    const m = y > 0 ? 'air' : y > SEABED - 0.5 ? 'water' : 'rock';
+    if (m === medium) return;
+    medium = m;
+    if (m === 'air') { scene.background = skyRT.texture; scene.fog.color.copy(FOG); scene.fog.near = 900; scene.fog.far = 3600; }
+    if (m === 'water') { scene.background = UW; scene.fog.color.copy(UW); scene.fog.near = 2; scene.fog.far = 140; }
+    if (m === 'rock') { scene.background = DEEP; scene.fog.color.copy(DEEP); scene.fog.near = 900; scene.fog.far = 5000; }
+  }
   const seabed = new THREE.Mesh(
     new THREE.PlaneGeometry(9000, 9000).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({color: 0x4a4a3a}),
+    new THREE.MeshLambertMaterial({color: 0x9a8e68}),
   );
   seabed.position.set(900, SEABED - 0.2, 0);
   scene.add(seabed);
@@ -214,6 +230,7 @@ export function createStage(vp, {cam, tgt, names = {}, onPick, pick = true} = {}
     }
     if (!manual) controls.update();
 
+    setMedium(camera.position.y);
     const focusPt = manual ? manual() : controls.target;
     sun.target.position.copy(focusPt);
     sun.position.copy(focusPt).addScaledVector(sunDir, 700);

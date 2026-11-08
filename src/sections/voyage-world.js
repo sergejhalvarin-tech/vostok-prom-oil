@@ -160,6 +160,7 @@ export function buildVoyageWorld(stage) {
   const term = buildTerminal();
   mergeStatic(term.group);
   stage.scene.add(term.group);
+  stage.scene.add(term.mountains);
   stage.registerTree(term.group);
 
   // Швартовы считаем по положению танкера у причала.

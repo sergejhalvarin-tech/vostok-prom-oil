@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import {mountStory} from '../kit/story.js';
 import {SEABED} from '../kit/stage.js';
 import {makeIce, makeFlow} from '../kit/sea.js';
+import {makeSection} from './geology.js';
+import {makeSeaLife} from './sealife.js';
 import {loadPlatform, loadTanker, TANKER_AT_PLATFORM} from '../kit/models.js';
 import {makeOffloading} from './offloading.js';
 
@@ -127,6 +129,8 @@ export function mountShelf(root, sec, next) {
       const ice = makeIce((x, z) => x > 60 && z < -60 && x - z < 700); // коридор танкера чистый
       stage.scene.add(ice);
 
+      const life = makeSeaLife();
+      stage.scene.add(life.group);
       const section = makeSection();
       section.group.visible = false;
       stage.scene.add(section.group);
@@ -147,6 +151,7 @@ export function mountShelf(root, sec, next) {
       }
 
       stage.onFrame((dt, t) => {
+        life.update(dt, t, stage.camera.position);
         if (sectionOn) section.update(dt);
         shipFlow.update(dt);
         tanker.position.y = Math.sin(t * 0.6) * 0.15;
@@ -177,104 +182,3 @@ export function mountShelf(root, sec, next) {
     },
   });
 }
-
-// ======================================================================
-// Геологический разрез в плоскости z = 0: слои, антиклинальная ловушка с нефтью, скважины, потоки.
-const SEC = {x0: -430, x1: 430, top: SEABED, bot: -340};
-const C = (x) => Math.cos((Math.PI * x) / 900);
-const RES_TOP = (x) => -200 + 36 * C(x);
-const RES_BOT = (x) => -236 + 36 * C(x);
-const OWC = -188; // водонефтяной контакт
-
-export function makeSection() {
-  const group = new THREE.Group();
-
-  // Слои рисуем на канвасе: x → ширина, y → высота.
-  const W = 2048, H = Math.round((W * (SEC.top - SEC.bot)) / (SEC.x1 - SEC.x0));
-  const cv = document.createElement('canvas');
-  cv.width = W; cv.height = H;
-  const g = cv.getContext('2d');
-  const px = (x) => ((x - SEC.x0) / (SEC.x1 - SEC.x0)) * W;
-  const py = (y) => ((SEC.top - y) / (SEC.top - SEC.bot)) * H;
-  const layer = (topFn, color) => {
-    g.fillStyle = color;
-    g.beginPath();
-    for (let x = SEC.x0; x <= SEC.x1; x += 10) g.lineTo(px(x), py(topFn(x)));
-    g.lineTo(W, H); g.lineTo(0, H); g.closePath(); g.fill();
-  };
-  layer(() => SEABED, '#a8966f');                          // донные осадки
-  layer(() => -36, '#857a68');                             // глины
-  layer((x) => -80 + 8 * C(x), '#978668');                 // песчано-глинистая толща
-  layer((x) => -128 + 20 * C(x), '#a29d90');               // известняки
-  layer((x) => -170 + 34 * C(x), '#575049');               // покрышка — плотные глины
-  layer(RES_TOP, '#4d5d68');                               // пласт-коллектор (водонасыщенный)
-  layer(RES_BOT, '#766d63');                               // подстилающие породы
-  // Нефть — в своде ловушки, выше водонефтяного контакта.
-  g.fillStyle = '#20140a';
-  g.beginPath();
-  const xs = [];
-  for (let x = SEC.x0; x <= SEC.x1; x += 4) if (RES_TOP(x) > OWC) xs.push(x);
-  xs.forEach((x) => g.lineTo(px(x), py(RES_TOP(x))));
-  [...xs].reverse().forEach((x) => g.lineTo(px(x), py(Math.max(OWC, RES_BOT(x)))));
-  g.closePath(); g.fill();
-  // Зерно породы.
-  let seed = 3;
-  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  for (let i = 0; i < 26000; i++) {
-    g.fillStyle = rnd() < 0.5 ? 'rgba(0,0,0,0.10)' : 'rgba(255,255,255,0.07)';
-    g.fillRect(rnd() * W, rnd() * H, 2 + rnd() * 3, 1 + rnd() * 2);
-  }
-  // Границы слоёв.
-  g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 2;
-  for (const f of [() => -36, (x) => -80 + 8 * C(x), (x) => -128 + 20 * C(x), (x) => -170 + 34 * C(x), RES_TOP, RES_BOT]) {
-    g.beginPath();
-    for (let x = SEC.x0; x <= SEC.x1; x += 10) g.lineTo(px(x), py(f(x)));
-    g.stroke();
-  }
-  const tex = new THREE.CanvasTexture(cv);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
-
-  const face = new THREE.Mesh(
-    new THREE.PlaneGeometry(SEC.x1 - SEC.x0, SEC.top - SEC.bot),
-    new THREE.MeshBasicMaterial({map: tex, fog: false, toneMapped: false}),
-  );
-  face.position.set((SEC.x0 + SEC.x1) / 2, (SEC.top + SEC.bot) / 2, 0);
-  group.add(face);
-
-  // Толща воды в разрезе.
-  const waterFace = new THREE.Mesh(
-    new THREE.PlaneGeometry(SEC.x1 - SEC.x0, -SEABED),
-    new THREE.MeshBasicMaterial({color: 0x2d6f86, transparent: true, opacity: 0.45, fog: false, depthWrite: false}),
-  );
-  waterFace.position.set(0, SEABED / 2, -0.5);
-  group.add(waterFace);
-
-  // Скважины. x — где кончается горизонтальный ствол.
-  const head = (i) => new THREE.Vector3(-6 + (i - 3.5) * 2.6, SEABED, 1.5);
-  const midOil = (x) => (RES_TOP(x) + Math.max(OWC, RES_BOT(x))) / 2;
-  const curve = (i, xe, ye) => {
-    const h0 = head(i);
-    const xa = h0.x + 0.62 * (xe - h0.x);
-    return new THREE.CatmullRomCurve3([
-      h0,
-      new THREE.Vector3(h0.x, SEABED - 40, 1.5),
-      new THREE.Vector3(h0.x + 0.3 * (xe - h0.x), -125, 1.5),
-      new THREE.Vector3(xa, ye(xa), 1.5),
-      new THREE.Vector3(xe, ye(xe), 1.5),
-    ], false, 'centripetal');
-  };
-  const prod = [-300, -195, -95, 60, 165, 285].map((xe, k) => curve([0, 1, 2, 5, 6, 7][k], xe, midOil));
-  const inj = [curve(3, -400, () => -212), curve(4, 400, () => -212)];
-  const tubeMat = (c) => new THREE.MeshStandardMaterial({color: c, roughness: 0.4, metalness: 0.5, emissive: c, emissiveIntensity: 0.25});
-  const mProd = tubeMat(0xd9822b), mInj = tubeMat(0x3d8fd6);
-  for (const c of prod) group.add(new THREE.Mesh(new THREE.TubeGeometry(c, 120, 1.5, 8), mProd));
-  for (const c of inj) group.add(new THREE.Mesh(new THREE.TubeGeometry(c, 120, 1.5, 8), mInj));
-
-  const oil = makeFlow(prod, 34, 0xffb340, 4.2, true);
-  const wat = makeFlow(inj, 40, 0x7cc4ff, 4.0, false);
-  group.add(oil.points, wat.points);
-
-  return {group, update: (dt) => { if (group.visible) { oil.update(dt); wat.update(dt); } }};
-}
-
