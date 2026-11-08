@@ -6,8 +6,15 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {Sky} from 'three/addons/objects/Sky.js';
+import {EffectComposer} from 'three/addons/postprocessing/EffectComposer.js';
+import {RenderPass} from 'three/addons/postprocessing/RenderPass.js';
+import {GTAOPass} from 'three/addons/postprocessing/GTAOPass.js';
+import {OutputPass} from 'three/addons/postprocessing/OutputPass.js';
+import {ShaderPass} from 'three/addons/postprocessing/ShaderPass.js';
+import {makeOffloading, GRADE, TANKER_SCALE, TANKER_POS, TANKER_ROT} from './offloading.js';
 
 const MODEL_URL = 'models/prirazlomnaya.glb';
+const TANKER_URL = 'models/tanker.glb';
 const SEA_OFFSET = 52.5; // в исходной модели поверхность моря на y = −52,5
 const SEABED = -20;
 
@@ -30,6 +37,9 @@ const NAMES = {
   living: 'Жилой модуль и вертолётная площадка',
   tanker: 'Танкер ледового класса',
   wells: 'Скважины',
+  pumps: 'Насосы отгрузки нефти',
+  hose: 'Шланг налива',
+  hawser: 'Швартовный канат',
 };
 
 // История по шагам. cam/tgt — положение камеры и точка, на которую она смотрит.
@@ -77,10 +87,12 @@ const STEPS = [
   {
     title: 'Отгрузка на танкер',
     focus: 'tanker',
-    also: 'kupon',
+    also: ['kupon', 'pumps', 'hose', 'hawser'],
     flow: true,
-    cam: [450, 240, 210], tgt: [125, 0, -125],
-    html: `<p>Нефть из хранилища откачивают на челночные танкеры ледового класса через устройства прямой отгрузки на углах платформы. Танкер встаёт к той стороне, куда его выводят ветер и дрейф льда.</p>
+    cam: [255, 120, 30], tgt: [92, 22, -105],
+    html: `<p>Танкер подходит носом к углу платформы и держится на расстоянии около 80 м. Его удерживают <b>швартовный канат</b> и собственные подруливающие устройства.</p>
+      <p><b class="c-oil">Насосы отгрузки</b> забирают нефть из танков кессона и гонят её по трубопроводу вдоль стрелы устройства прямой отгрузки. С вершины стрелы к носовому приёмному устройству танкера спускается <b>шланг налива</b>.</p>
+      <p>Танкер встаёт к той стороне, куда его выводят ветер и дрейф льда, поэтому такие устройства стоят на двух противоположных углах платформы.</p>
       <p>Нефть «Приразломной» продаётся как отдельный сорт ARCO (Arctic Oil). Это тяжёлая сернистая нефть.</p>
       <p>Дальше танкер везёт её на перевалку, а затем на нефтеперерабатывающий завод. Там из тяжёлых фракций получают <b>базовые масла</b> — основу гидравлических, турбинных и индустриальных масел.</p>`,
   },
@@ -100,7 +112,10 @@ const HOTSPOTS = [
   {key: 'wells', p: [60, -150, 2], step: 3, section: true},
   {key: 'prep', p: [-20, 54, -12], step: 4},
   {key: 'kupon', p: [48, 74, -56], step: 5},
-  {key: 'tanker', p: [205, 42, -213], step: 5},
+  {key: 'pumps', p: [53, 27, -64], step: 5},
+  {key: 'hose', p: [92, 30, -98], step: 5},
+  {key: 'hawser', p: [88, 14, -96], step: 5},
+  {key: 'tanker', p: [190, 48, -196], step: 5},
   {key: 'living', p: [-58, 48, -6], step: 6},
 ];
 
@@ -138,7 +153,10 @@ export function mountShelf(root, sec, next) {
         <footer class="credits">
           3D-модель: <a href="https://sketchfab.com/3d-models/by-lightproduction-221b011013244993a4a27c2094b8e152" target="_blank" rel="noopener">«МЛСП Приразломная»</a>,
           © <a href="https://sketchfab.com/lightproduction" target="_blank" rel="noopener">Lightproduction</a>,
-          <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>; море, разрез и танкер дорисованы.
+          <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>;
+          <a href="https://sketchfab.com/3d-models/tanker-ship-96ebf61af42b4062ae98a6ad848e1a25" target="_blank" rel="noopener">«Tanker Ship»</a>,
+          © <a href="https://sketchfab.com/KoreanNavy" target="_blank" rel="noopener">KoreanNavy</a>, CC BY 4.0.
+          Море, лёд, разрез, насосы и шланг дорисованы.
           Цифры по открытым источникам, округлены.
         </footer>
       </aside>
@@ -151,9 +169,9 @@ export function mountShelf(root, sec, next) {
   const renderer = new THREE.WebGLRenderer({antialias: true, powerPreference: 'high-performance'});
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.55;
+  renderer.toneMappingExposure = 0.6;
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   vp.prepend(renderer.domElement);
 
   const scene = new THREE.Scene();
@@ -169,11 +187,11 @@ export function mountShelf(root, sec, next) {
   const sky = new Sky();
   sky.scale.setScalar(10000);
   const su = sky.material.uniforms;
-  su.turbidity.value = 3.5;
-  su.rayleigh.value = 1.6;
-  su.mieCoefficient.value = 0.004;
-  su.mieDirectionalG.value = 0.85;
-  const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 11), THREE.MathUtils.degToRad(215));
+  su.turbidity.value = 1.8;
+  su.rayleigh.value = 2.4;
+  su.mieCoefficient.value = 0.003;
+  su.mieDirectionalG.value = 0.86;
+  const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 19), THREE.MathUtils.degToRad(215));
   su.sunPosition.value.copy(sunDir);
   scene.add(sky);
 
@@ -185,20 +203,32 @@ export function mountShelf(root, sec, next) {
   envScene.add(skyEnv);
   const envRT = pmrem.fromScene(envScene, 0, 1, 20000);
   scene.environment = envRT.texture;
-  scene.environmentIntensity = 0.9;
+  scene.environmentIntensity = 1.0;
 
-  const FOG = new THREE.Color(0xb9c7d3);
-  scene.fog = new THREE.Fog(FOG, 700, 3200);
+  const FOG = new THREE.Color(0xa9cbe6);
+  scene.fog = new THREE.Fog(FOG, 900, 3600);
 
-  const sun = new THREE.DirectionalLight(0xffe2c0, 2.6);
-  sun.position.copy(sunDir).multiplyScalar(500);
+  const sun = new THREE.DirectionalLight(0xfff0d8, 3.4);
+  sun.position.copy(sunDir).multiplyScalar(600);
+  sun.target.position.set(60, 0, -60);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  Object.assign(sun.shadow.camera, {left: -170, right: 170, top: 170, bottom: -170, near: 10, far: 1200});
-  sun.shadow.bias = -0.0004;
-  sun.shadow.normalBias = 0.6;
+  sun.shadow.mapSize.set(4096, 4096);
+  Object.assign(sun.shadow.camera, {left: -300, right: 300, top: 300, bottom: -300, near: 10, far: 1500});
+  sun.shadow.bias = -0.0003;
+  sun.shadow.normalBias = 0.5;
   scene.add(sun, sun.target);
-  scene.add(new THREE.HemisphereLight(0xcfe0ff, 0x2a3540, 0.6));
+  scene.add(new THREE.HemisphereLight(0xd8ebff, 0x3a4a58, 0.75));
+
+  // Пост-обработка: MSAA-буфер, затенение в углах (GTAO), вывод, лёгкая цветокоррекция.
+  const rt = new THREE.WebGLRenderTarget(1, 1, {type: THREE.HalfFloatType, samples: 4});
+  const composer = new EffectComposer(renderer, rt);
+  composer.addPass(new RenderPass(scene, camera));
+  const gtao = new GTAOPass(scene, camera, 1, 1);
+  gtao.updateGtaoMaterial({radius: 4, distanceExponent: 1.5, thickness: 2, scale: 1.2, samples: 16});
+  gtao.blendIntensity = 0.85;
+  composer.addPass(gtao);
+  composer.addPass(new OutputPass());
+  composer.addPass(new ShaderPass(GRADE));
 
   // ---------- море ----------
   const water = makeWater(sunDir, FOG);
@@ -220,40 +250,66 @@ export function mountShelf(root, sec, next) {
   section.group.visible = false;
   scene.add(section.group);
 
-  // ---------- танкер и шланг отгрузки ----------
-  const tanker = makeTanker();
-  scene.add(tanker.group);
-  const hose = new THREE.QuadraticBezierCurve3(
-    new THREE.Vector3(58, 44, -66), new THREE.Vector3(92, 2, -98), new THREE.Vector3(111, 13, -119));
-  const hoseMesh = new THREE.Mesh(new THREE.TubeGeometry(hose, 40, 0.7, 8), new THREE.MeshStandardMaterial({color: 0x15181c, roughness: 0.6}));
-  hoseMesh.castShadow = true;
-  scene.add(hoseMesh);
-  const shipFlow = makeFlow([hose], 60, 0xffa31a, 3.2, false);
+  // ---------- танкер ----------
+  const groups = {}; // key → [mesh]
+  const highlightable = []; // меши, по которым работает клик/наведение
+  const register = (o, key) => {
+    o.castShadow = o.receiveShadow = true;
+    o.material = o.material.clone();
+    o.material.userData.e0 = o.material.emissive?.clone();
+    if (o.material.map) o.material.map.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    if (!key) return;
+    (groups[key] ||= []).push(o);
+    o.userData.key = key;
+    highlightable.push(o);
+  };
+
+  const tanker = new THREE.Group();
+  tanker.position.copy(TANKER_POS);
+  tanker.rotation.y = TANKER_ROT;
+  scene.add(tanker);
+  let mixer = null;
+
+  const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+  loader.load(TANKER_URL, (gltf) => {
+    const m = gltf.scene;
+    m.scale.setScalar(TANKER_SCALE);
+    m.traverse((o) => {
+      if (!o.isMesh) return;
+      register(o, 'tanker');
+      // Яркая окраска: насыщеннее и чуть глянцевее исходных серых материалов.
+      const mat = o.material;
+      mat.roughness = Math.min(mat.roughness ?? 1, 0.55);
+      mat.metalness = Math.min(mat.metalness ?? 0, 0.3);
+      const hsl = mat.color.getHSL({});
+      if (hsl.s > 0.2) mat.color.setHSL(hsl.h, Math.min(1, hsl.s * 1.25), Math.min(0.55, hsl.l * 1.15));
+    });
+    tanker.add(m);
+    if (gltf.animations.length) {
+      mixer = new THREE.AnimationMixer(m);
+      for (const clip of gltf.animations) mixer.clipAction(clip).play();
+    }
+  });
+
+  // ---------- отгрузка: насосы, трубопровод по стреле, шланг, швартовный канат ----------
+  tanker.updateMatrixWorld(true);
+  const offload = makeOffloading(tanker);
+  scene.add(offload.group);
+  offload.group.traverse((o) => o.isMesh && register(o, o.userData.key));
+  const shipFlow = makeFlow([offload.flowCurve], 140, 0xffa31a, 2.6, false, 30);
   shipFlow.points.visible = false;
   scene.add(shipFlow.points);
 
   // ---------- модель платформы ----------
-  const groups = {tanker: tanker.meshes}; // key → [mesh]
-  const highlightable = []; // меши, по которым работает клик/наведение
-  for (const m of tanker.meshes) highlightable.push(m);
-
-  const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   loader.load(MODEL_URL, (gltf) => {
     const model = gltf.scene;
     model.position.y = SEA_OFFSET;
     model.traverse((o) => {
       if (HIDE_NODES.includes(o.name)) o.visible = false;
       if (!o.isMesh) return;
-      o.castShadow = o.receiveShadow = true;
-      o.material = o.material.clone();
-      o.material.userData.e0 = o.material.emissive?.clone();
       let key = null;
       for (let p = o; p && !key; p = p.parent) key = NODE_KEY[p.name] || null;
-      if (key) {
-        (groups[key] ||= []).push(o);
-        o.userData.key = key;
-        highlightable.push(o);
-      }
+      register(o, key);
     });
     scene.add(model);
     $('loading').classList.add('done');
@@ -355,7 +411,7 @@ export function mountShelf(root, sec, next) {
   const onUp = (e) => {
     if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 5) return;
     const key = pick(e);
-    const i = STEPS.findIndex((s) => s.focus === key || s.also === key);
+    const i = STEPS.findIndex((s) => s.focus === key || s.also?.includes(key));
     if (i >= 0) go(i);
   };
   renderer.domElement.addEventListener('pointermove', onMove);
@@ -367,6 +423,8 @@ export function mountShelf(root, sec, next) {
   const resize = () => {
     const w = vp.clientWidth, h = vp.clientHeight;
     renderer.setSize(w, h, false);
+    composer.setPixelRatio(renderer.getPixelRatio());
+    composer.setSize(w, h);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
   };
@@ -377,12 +435,14 @@ export function mountShelf(root, sec, next) {
   // ---------- кадр ----------
   const tmp = new THREE.Vector3();
   const ORANGE = new THREE.Color(1, 0.5, 0.08);
-  const clock = new THREE.Clock();
+  const timer = new THREE.Timer();
+  timer.connect(document);
   let raf = 0;
   function frame() {
     raf = requestAnimationFrame(frame);
-    const dt = Math.min(clock.getDelta(), 0.05);
-    const t = clock.elapsedTime;
+    timer.update();
+    const dt = Math.min(timer.getDelta(), 0.05);
+    const t = timer.getElapsed();
 
     if (fly) {
       const k = Math.min(1, (performance.now() - fly.start) / 1600);
@@ -396,13 +456,14 @@ export function mountShelf(root, sec, next) {
     water.update(t);
     section.update(dt);
     shipFlow.update(dt);
-    tanker.group.position.y = Math.sin(t * 0.6) * 0.25;
+    tanker.position.y = Math.sin(t * 0.6) * 0.15;
+    mixer?.update(dt);
 
     // Подсветка: выбранная группа пульсирует, наведённая светится ровно.
     const focus = STEPS[step]?.focus, also = STEPS[step]?.also;
     const pulse = 0.18 + 0.12 * Math.sin(t * 3.2);
     for (const [key, meshes] of Object.entries(groups)) {
-      const amt = key === hoverKey ? 0.32 : (key === focus || key === also) ? pulse : 0;
+      const amt = key === hoverKey ? 0.32 : key === focus ? pulse : also?.includes(key) ? pulse * 0.6 : 0;
       for (const m of meshes) {
         if (!m.material.emissive) continue;
         if (amt) m.material.emissive.copy(ORANGE).multiplyScalar(amt);
@@ -424,7 +485,7 @@ export function mountShelf(root, sec, next) {
     }
     for (const d of depthEls) place(d.el, d.v, sectionOn);
 
-    renderer.render(scene, camera);
+    composer.render();
   }
 
   go(0);
@@ -432,6 +493,7 @@ export function mountShelf(root, sec, next) {
 
   return () => {
     cancelAnimationFrame(raf);
+    timer.dispose();
     ro.disconnect();
     controls.dispose();
     scene.traverse((o) => {
@@ -443,6 +505,9 @@ export function mountShelf(root, sec, next) {
       }
     });
     envRT.dispose();
+    rt.dispose();
+    gtao.dispose();
+    composer.dispose();
     pmrem.dispose();
     renderer.dispose();
   };
@@ -454,8 +519,8 @@ function makeWater(sunDir, fogColor) {
   const uniforms = {
     uTime: {value: 0},
     uSun: {value: sunDir.clone().normalize()},
-    uDeep: {value: new THREE.Color(0x0d2a36)},
-    uSky: {value: new THREE.Color(0x9fb6c8)},
+    uDeep: {value: new THREE.Color(0x064766)},
+    uSky: {value: new THREE.Color(0x7fb8dc)},
     uFog: {value: fogColor},
     uOpacity: {value: 0.8},
   };
@@ -488,7 +553,7 @@ function makeWater(sunDir, fogColor) {
         float fr = pow(1.0 - max(dot(n, v), 0.0), 4.0);
         vec3 col = mix(uDeep, uSky, clamp(0.06 + fr * 0.9, 0.0, 1.0));
         vec3 hv = normalize(v + uSun);
-        col += vec3(1.0, 0.86, 0.68) * pow(max(dot(n, hv), 0.0), 220.0) * 2.5;
+        col += vec3(1.0, 0.86, 0.68) * pow(max(dot(n, hv), 0.0), 400.0) * 1.6;
         float d = length(cameraPosition - vW);
         float f = smoothstep(700.0, 3200.0, d);
         col = mix(col, uFog, f);
@@ -636,7 +701,7 @@ function makeSection() {
 }
 
 // Частицы, бегущие вдоль кривых: нефть вверх (reverse), вода вниз.
-function makeFlow(curves, perCurve, color, size, reverse) {
+function makeFlow(curves, perCurve, color, size, reverse, speed = 45) {
   const n = curves.length * perCurve;
   const pos = new Float32Array(n * 3);
   const geo = new THREE.BufferGeometry();
@@ -652,7 +717,7 @@ function makeFlow(curves, perCurve, color, size, reverse) {
   const update = (dt) => {
     for (let i = 0; i < n; i++) {
       const ci = Math.floor(i / perCurve);
-      t[i] = (t[i] + (dt * 45) / lens[ci]) % 1;
+      t[i] = (t[i] + (dt * speed) / lens[ci]) % 1;
       curves[ci].getPointAt(reverse ? 1 - t[i] : t[i], v);
       pos[i * 3] = v.x; pos[i * 3 + 1] = v.y; pos[i * 3 + 2] = v.z;
     }
@@ -662,45 +727,3 @@ function makeFlow(curves, perCurve, color, size, reverse) {
   return {points, update};
 }
 
-// ======================================================================
-// Челночный танкер ледового класса (условная модель ~257 × 34 м), носом к платформе.
-function makeTanker() {
-  const L = 257, B = 34;
-  const group = new THREE.Group();
-  const meshes = [];
-  const add = (geo, color, opts = {}) => {
-    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({color, roughness: 0.55, metalness: 0.2, ...opts}));
-    m.castShadow = m.receiveShadow = true;
-    m.userData.key = 'tanker';
-    meshes.push(m);
-    group.add(m);
-    return m;
-  };
-  const hull = new THREE.Shape();
-  hull.moveTo(-L / 2, -B / 2);
-  hull.lineTo(L / 2 - 38, -B / 2);
-  hull.quadraticCurveTo(L / 2 - 4, -B / 2 + 4, L / 2, 0);
-  hull.quadraticCurveTo(L / 2 - 4, B / 2 - 4, L / 2 - 38, B / 2);
-  hull.lineTo(-L / 2 + 6, B / 2);
-  hull.quadraticCurveTo(-L / 2, B / 2, -L / 2, B / 2 - 6);
-  hull.closePath();
-  const hullGeo = (d) => new THREE.ExtrudeGeometry(hull, {depth: d, bevelEnabled: false}).rotateX(-Math.PI / 2);
-  add(hullGeo(12).translate(0, -12, 0), 0x7a1b17);       // подводная часть
-  add(hullGeo(13), 0x1f2a33);                            // надводный борт
-  const deck = add(new THREE.ShapeGeometry(hull).rotateX(-Math.PI / 2), 0x55624f, {roughness: 0.9});
-  deck.position.y = 13.05;
-  const house = add(new THREE.BoxGeometry(22, 26, 30), 0xeeeeea);
-  house.position.set(-L / 2 + 22, 26, 0);
-  const bridge = add(new THREE.BoxGeometry(10, 4, 36), 0xeeeeea);
-  bridge.position.set(-L / 2 + 28, 41, 0);
-  const funnel = add(new THREE.CylinderGeometry(3.4, 4, 12, 12), 0xc2271d);
-  funnel.position.set(-L / 2 + 10, 44, 0);
-  const pipe = add(new THREE.CylinderGeometry(1, 1, L - 70, 8).rotateZ(Math.PI / 2), 0x9aa3a8);
-  pipe.position.set(15, 15, 0);
-  const bowTower = add(new THREE.BoxGeometry(10, 12, 14), 0xd8d8d0);
-  bowTower.position.set(L / 2 - 30, 19, 0);
-
-  group.position.set(203, 0, -211);
-  group.rotation.y = -3 * Math.PI / 4;
-  return {group, meshes};
-}

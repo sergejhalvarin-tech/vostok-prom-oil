@@ -1,28 +1,40 @@
-// Готовит модель МЛСП «Приразломная» для веба:
-// spec-gloss → metal-rough (Three.js его больше не читает), текстуры ≤2048 px в WebP, геометрия meshopt.
-//   node tools/optimize-model.mjs [src.glb] [out.glb]
+// Готовит модели для веба (исходники в models/source/, не в git):
+//   платформа «Приразломная»: spec-gloss → metal-rough (Three.js его больше не читает),
+//     текстуры до 4096 px в WebP (высокое качество), геометрия meshopt;
+//   танкер: только очистка и meshopt (текстур нет).
+//   node tools/optimize-model.mjs
 import {execFileSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const src = process.argv[2] || 'models/source/prirazlomnaya.glb';
-const out = process.argv[3] || 'public/models/prirazlomnaya.glb';
 const tmp = 'models/tmp';
 fs.mkdirSync(tmp, {recursive: true});
-fs.mkdirSync(path.dirname(out), {recursive: true});
+fs.mkdirSync('public/models', {recursive: true});
 
 const cli = path.resolve('node_modules/@gltf-transform/cli/bin/cli.js');
 const run = (...args) => {
   console.log('gltf-transform', args.join(' '));
   execFileSync(process.execPath, [cli, ...args], {stdio: 'inherit'});
 };
-
-run('metalrough', src, `${tmp}/1.glb`);
-run('dedup', `${tmp}/1.glb`, `${tmp}/2.glb`);
-run('prune', `${tmp}/2.glb`, `${tmp}/3.glb`);
-run('resize', `${tmp}/3.glb`, `${tmp}/4.glb`, '--width', '2048', '--height', '2048');
-run('webp', `${tmp}/4.glb`, `${tmp}/5.glb`, '--quality', '82');
-run('meshopt', `${tmp}/5.glb`, out, '--level', 'medium');
-
 const mb = (f) => (fs.statSync(f).size / 1e6).toFixed(1) + ' MB';
-console.log(`${src} ${mb(src)} → ${out} ${mb(out)}`);
+
+// Платформа
+{
+  const src = 'models/source/prirazlomnaya.glb', out = 'public/models/prirazlomnaya.glb';
+  run('metalrough', src, `${tmp}/p1.glb`);
+  run('dedup', `${tmp}/p1.glb`, `${tmp}/p2.glb`);
+  run('prune', `${tmp}/p2.glb`, `${tmp}/p3.glb`);
+  run('resize', `${tmp}/p3.glb`, `${tmp}/p4.glb`, '--width', '4096', '--height', '4096');
+  run('webp', `${tmp}/p4.glb`, `${tmp}/p5.glb`, '--quality', '90');
+  run('meshopt', `${tmp}/p5.glb`, out, '--level', 'medium');
+  console.log(`${src} ${mb(src)} → ${out} ${mb(out)}`);
+}
+
+// Танкер
+{
+  const src = 'models/source/tanker_ship.glb', out = 'public/models/tanker.glb';
+  run('dedup', src, `${tmp}/t1.glb`);
+  run('prune', `${tmp}/t1.glb`, `${tmp}/t2.glb`);
+  run('meshopt', `${tmp}/t2.glb`, out, '--level', 'medium');
+  console.log(`${src} ${mb(src)} → ${out} ${mb(out)}`);
+}
