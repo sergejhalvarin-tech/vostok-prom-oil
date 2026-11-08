@@ -38,7 +38,7 @@ function route() {
   for (const a of menu.children) a.classList.toggle('on', a.dataset.id === s.id);
   const next = SECTIONS[SECTIONS.indexOf(s) + 1];
   current = {id: s.id, dispose: s.mount(app, s, next)};
-  document.title = `${s.title} — ПромМасла`;
+  document.title = `${s.title} — ВостокПромОйл`;
 }
 
 addEventListener('hashchange', route);
