@@ -1,17 +1,14 @@
 // Отгрузка нефти с платформы на танкер: насосная установка на кессоне → трубопровод вдоль стрелы
 // устройства прямой отгрузки → шланг налива к носовому приёмному устройству танкера; швартовный канат.
-// Танкер «Tanker Ship» © KoreanNavy, CC BY 4.0: нос в −z, ватерлиния y = 0, длина 162 ед.
 import * as THREE from 'three';
+import {TANKER_SCALE} from '../kit/models.js';
 
-export const TANKER_SCALE = 257 / 162.3; // челночный танкер ледового класса ≈ 257 м
-// Нос танкера в ~80 м от угла кессона, корпус уходит от платформы по диагонали.
-export const TANKER_POS = new THREE.Vector3(184.5, 0, -192.5);
-export const TANKER_ROT = (3 * Math.PI) / 4;
 // Стрела устройства отгрузки (узел Kran_B_2 модели платформы): опора и вершина, мировые координаты.
 const BOOM_BASE = new THREE.Vector3(43.5, 33, -51);
 const BOOM_TIP = new THREE.Vector3(60.8, 67.5, -68.6);
 const UP = new THREE.Vector3(0, 1, 0);
 
+// tanker — группа танкера (метры, без масштаба), стоящая у платформы; приёмное устройство крепится к ней.
 export function makeOffloading(tanker) {
   const group = new THREE.Group();
   const mat = (color, o = {}) => new THREE.MeshStandardMaterial({color, roughness: 0.45, metalness: 0.35, ...o});
@@ -24,6 +21,7 @@ export function makeOffloading(tanker) {
     return m;
   };
   const S = TANKER_SCALE;
+  tanker.updateMatrixWorld(true);
   const onShip = (x, y, z) => tanker.localToWorld(new THREE.Vector3(x * S, y * S, z * S));
   const below = (v, d) => v.clone().add(new THREE.Vector3(0, -d, 0));
 
@@ -82,9 +80,8 @@ export function makeOffloading(tanker) {
 
   // --- Носовое приёмное устройство танкера ---
   const station = new THREE.Group();
-  station.position.copy(onShip(0, 5.4, -52.5));
-  station.rotation.y = TANKER_ROT;
-  group.add(station);
+  station.position.set(0, 5.4 * S, -52.5 * S);
+  tanker.add(station);
   add(station, new THREE.BoxGeometry(6, 3.2, 4), mat(0xf4f4f0), 'tanker', [0, 1.6, 0]);
   add(station, new THREE.BoxGeometry(6.2, 0.5, 4.2), red, 'tanker', [0, 3.3, 0]);
   add(station, new THREE.CylinderGeometry(0.75, 0.75, 1.8, 20), yellow, 'hose', [0, 4.4, -1.2]); // муфта аварийного разъединения
@@ -100,13 +97,15 @@ export function makeOffloading(tanker) {
     hosePts.push(p);
   }
   const hose = new THREE.CatmullRomCurve3(hosePts);
-  add(group, new THREE.TubeGeometry(hose, 220, 0.5, 14), mat(0x15171a, {roughness: 0.7, metalness: 0}), 'hose');
+  const hoseMesh = add(group, new THREE.TubeGeometry(hose, 220, 0.5, 14), mat(0x15171a, {roughness: 0.7, metalness: 0}), 'hose');
+  const collars = [];
   const L = hose.getLength();
   for (let d = 4; d < L - 3; d += 5.5) { // яркие поплавковые манжеты
     const k = d / L;
     const c = add(group, new THREE.CylinderGeometry(0.82, 0.82, 1.2, 18), mat(0xff3d1f, {roughness: 0.5, metalness: 0}), 'hose');
     c.position.copy(hose.getPointAt(k));
     c.quaternion.setFromUnitVectors(UP, hose.getTangentAt(k));
+    collars.push({mesh: c, k});
   }
 
   // --- Швартовный канат: кнехт на углу кессона → носовой клюз танкера ---
@@ -120,27 +119,22 @@ export function makeOffloading(tanker) {
     p.y -= 3.5 * 4 * s * (1 - s);
     hawPts.push(p);
   }
-  add(group, new THREE.TubeGeometry(new THREE.CatmullRomCurve3(hawPts), 80, 0.28, 8),
+  const hawserMesh = add(group, new THREE.TubeGeometry(new THREE.CatmullRomCurve3(hawPts), 80, 0.28, 8),
     mat(0xfff2b0, {roughness: 0.9, metalness: 0}), 'hawser');
 
   // Путь нефти для анимации: насосы → стрела → шланг → танкер.
   const flowCurve = new THREE.CatmullRomCurve3([pumpOut, ...pipeCurve.getSpacedPoints(30), ...hosePts]);
 
-  return {group, flowCurve};
-}
+  // Отсоединение: k = 0 — шланг и швартов на месте, 1 — шланг поднят к стреле, швартов отдан.
+  const tubeCount = (m) => m.geometry.index.count;
+  const disconnect = (k) => {
+    const kh = THREE.MathUtils.clamp(k * 1.4, 0, 1), kw = THREE.MathUtils.clamp(k * 2 - 1, 0, 1);
+    hoseMesh.geometry.setDrawRange(0, Math.round(tubeCount(hoseMesh) * (1 - kh) / 6) * 6);
+    for (const c of collars) c.mesh.visible = c.k < 1 - kh;
+    hawserMesh.geometry.setDrawRange(0, Math.round(tubeCount(hawserMesh) * (1 - kw) / 6) * 6);
+    hawserMesh.visible = kw < 1;
+    station.children[2].visible = kh < 0.98;
+  };
 
-// Цветокоррекция после тонмаппинга: насыщенность и контраст.
-export const GRADE = {
-  uniforms: {tDiffuse: {value: null}, sat: {value: 1.22}, con: {value: 1.06}},
-  vertexShader: /* glsl */ `varying vec2 vUv;
-    void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-  fragmentShader: /* glsl */ `
-    uniform sampler2D tDiffuse; uniform float sat, con; varying vec2 vUv;
-    void main() {
-      vec4 c = texture2D(tDiffuse, vUv);
-      float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
-      vec3 g = mix(vec3(l), c.rgb, sat);
-      g = (g - 0.5) * con + 0.5;
-      gl_FragColor = vec4(clamp(g, 0.0, 1.0), c.a);
-    }`,
-};
+  return {group, station, flowCurve, disconnect};
+}

@@ -1,12 +1,12 @@
 // Одно приложение, разделы переключаются по хешу в адресе (#shelf, #transport …).
 import {mountShelf} from './sections/shelf.js';
 import {mountStub} from './sections/stub.js';
+import {mountTransport} from './sections/transport.js';
 
 // Путь нефти — сквозная история сайта. Готов первый этап, остальные пока заглушки.
 const SECTIONS = [
   {id: 'shelf', n: 1, title: 'Добыча на шельфе', mount: mountShelf},
-  {id: 'transport', n: 2, title: 'Транспорт', mount: mountStub,
-    text: 'Танкеры ледового класса и нефтепроводы: как нефть попадает с платформы на завод.'},
+  {id: 'transport', n: 2, title: 'Транспорт', mount: mountTransport},
   {id: 'refinery', n: 3, title: 'Переработка', mount: mountStub,
     text: 'Атмосферная и вакуумная перегонка мазута: откуда берутся масляные фракции.'},
   {id: 'base-oils', n: 4, title: 'Базовые масла', mount: mountStub,

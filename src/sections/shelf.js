@@ -1,33 +1,11 @@
 // Этап 1. Добыча нефти на шельфе: морская ледостойкая платформа, разрез до пласта, отгрузка на танкер.
-// Модель «МЛСП Приразломная» © Lightproduction, CC BY 4.0 (sketchfab.com/lightproduction).
-// Система координат после загрузки: уровень моря y = 0, метры; дно y = −20.
+// Система координат: уровень моря y = 0, метры; дно y = −20.
 import * as THREE from 'three';
-import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
-import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
-import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
-import {Sky} from 'three/addons/objects/Sky.js';
-import {EffectComposer} from 'three/addons/postprocessing/EffectComposer.js';
-import {RenderPass} from 'three/addons/postprocessing/RenderPass.js';
-import {GTAOPass} from 'three/addons/postprocessing/GTAOPass.js';
-import {OutputPass} from 'three/addons/postprocessing/OutputPass.js';
-import {ShaderPass} from 'three/addons/postprocessing/ShaderPass.js';
-import {makeOffloading, GRADE, TANKER_SCALE, TANKER_POS, TANKER_ROT} from './offloading.js';
-
-const MODEL_URL = 'models/prirazlomnaya.glb';
-const TANKER_URL = 'models/tanker.glb';
-const SEA_OFFSET = 52.5; // в исходной модели поверхность моря на y = −52,5
-const SEABED = -20;
-
-// Узлы модели → смысловые группы (подсветка, подписи, клик).
-const NODE_KEY = {
-  Kesson_mid: 'kesson', Kesson_DOWN: 'kesson', Kesson_UP: 'kesson',
-  Vishka: 'derrick', Vishka_Neft: 'derrick',
-  Block_central: 'prep', StufBig_A: 'prep', StufBig_B: 'prep', StufBig_C: 'prep',
-  Stuff_onboard: 'prep', AuxUnitGEO: 'prep',
-  Kran_B: 'kupon', Kran_B_2: 'kupon',
-  Block_living: 'living', Block_living_floor: 'living', HeliPad: 'living',
-};
-const HIDE_NODES = ['Box001', 'Object264']; // своё море из модели — заменяем анимированным
+import {mountStory} from '../kit/story.js';
+import {SEABED} from '../kit/stage.js';
+import {makeIce, makeFlow} from '../kit/sea.js';
+import {loadPlatform, loadTanker, TANKER_AT_PLATFORM} from '../kit/models.js';
+import {makeOffloading} from './offloading.js';
 
 const NAMES = {
   kesson: 'Кессон — основание и нефтехранилище',
@@ -126,478 +104,78 @@ const DEPTH_MARKS = [
   {y: -190, t: 'нефтяной пласт ≈ 2,5 км'},
 ];
 
+export const CREDITS = `
+  3D-модели: <a href="https://sketchfab.com/3d-models/by-lightproduction-221b011013244993a4a27c2094b8e152" target="_blank" rel="noopener">«МЛСП Приразломная»</a>,
+  © <a href="https://sketchfab.com/lightproduction" target="_blank" rel="noopener">Lightproduction</a>;
+  <a href="https://sketchfab.com/3d-models/tanker-ship-96ebf61af42b4062ae98a6ad848e1a25" target="_blank" rel="noopener">«Tanker Ship»</a>,
+  © <a href="https://sketchfab.com/KoreanNavy" target="_blank" rel="noopener">KoreanNavy</a>;
+  обе по лицензии <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.`;
+
 export function mountShelf(root, sec, next) {
-  root.innerHTML = `
-    <section class="stage">
-      <div class="viewport" id="vp">
-        <div class="labels" id="labels"></div>
-        <div class="tip" id="tip"></div>
-        <div class="loading" id="loading"><div class="bar"><i id="lbar"></i></div><span id="ltext">Загрузка модели платформы…</span></div>
-        <div class="vp-tools">
-          <button class="chip" id="bSection" title="Показать разрез под дном">Разрез до пласта</button>
-          <button class="chip" id="bReset" title="Вернуть общий вид">Общий вид</button>
-        </div>
-      </div>
-      <aside class="panel">
-        <div class="kicker">Этап 1 из 6 · Путь нефти</div>
-        <h1>Добыча нефти на шельфе</h1>
-        <p class="lead">Любое масло начинается с нефти. Посмотрите, как её добывают со дна арктического моря. Вращайте модель, нажимайте на номера и шаги.</p>
-        <ol class="steps" id="steps">${STEPS.map((s, i) => `<li><button data-i="${i}"><i>${i + 1}</i>${s.title}</button></li>`).join('')}</ol>
-        <article class="card" id="card"></article>
-        <div class="nav-row">
-          <button class="btn ghost" id="bPrev">←</button>
-          <span id="counter"></span>
-          <button class="btn" id="bNext">Дальше →</button>
-        </div>
-        <a class="next-stage" href="#${next.id}"><small>Этап ${next.n}</small>${next.title} →</a>
-        <footer class="credits">
-          3D-модель: <a href="https://sketchfab.com/3d-models/by-lightproduction-221b011013244993a4a27c2094b8e152" target="_blank" rel="noopener">«МЛСП Приразломная»</a>,
-          © <a href="https://sketchfab.com/lightproduction" target="_blank" rel="noopener">Lightproduction</a>,
-          <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>;
-          <a href="https://sketchfab.com/3d-models/tanker-ship-96ebf61af42b4062ae98a6ad848e1a25" target="_blank" rel="noopener">«Tanker Ship»</a>,
-          © <a href="https://sketchfab.com/KoreanNavy" target="_blank" rel="noopener">KoreanNavy</a>, CC BY 4.0.
-          Море, лёд, разрез, насосы и шланг дорисованы.
-          Цифры по открытым источникам, округлены.
-        </footer>
-      </aside>
-    </section>`;
-
-  const $ = (id) => root.querySelector('#' + id);
-  const vp = $('vp');
-
-  // ---------- рендер ----------
-  const renderer = new THREE.WebGLRenderer({antialias: true, powerPreference: 'high-performance'});
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.6;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFShadowMap;
-  vp.prepend(renderer.domElement);
-
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(42, 1, 1, 12000);
-  camera.position.set(...STEPS[0].cam);
-  const controls = new OrbitControls(camera, renderer.domElement);
-  controls.target.set(...STEPS[0].tgt);
-  controls.enableDamping = true;
-  controls.minDistance = 25;
-  controls.maxDistance = 1600;
-
-  // Небо низкого полярного солнца + окружение для отражений.
-  const sky = new Sky();
-  sky.scale.setScalar(10000);
-  const su = sky.material.uniforms;
-  su.turbidity.value = 1.8;
-  su.rayleigh.value = 2.4;
-  su.mieCoefficient.value = 0.003;
-  su.mieDirectionalG.value = 0.86;
-  const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 19), THREE.MathUtils.degToRad(215));
-  su.sunPosition.value.copy(sunDir);
-  scene.add(sky);
-
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  const envScene = new THREE.Scene();
-  const skyEnv = new Sky();
-  skyEnv.scale.setScalar(10000);
-  for (const k of Object.keys(su)) skyEnv.material.uniforms[k].value = su[k].value;
-  envScene.add(skyEnv);
-  const envRT = pmrem.fromScene(envScene, 0, 1, 20000);
-  scene.environment = envRT.texture;
-  scene.environmentIntensity = 1.0;
-
-  const FOG = new THREE.Color(0xa9cbe6);
-  scene.fog = new THREE.Fog(FOG, 900, 3600);
-
-  const sun = new THREE.DirectionalLight(0xfff0d8, 3.4);
-  sun.position.copy(sunDir).multiplyScalar(600);
-  sun.target.position.set(60, 0, -60);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(4096, 4096);
-  Object.assign(sun.shadow.camera, {left: -300, right: 300, top: 300, bottom: -300, near: 10, far: 1500});
-  sun.shadow.bias = -0.0003;
-  sun.shadow.normalBias = 0.5;
-  scene.add(sun, sun.target);
-  scene.add(new THREE.HemisphereLight(0xd8ebff, 0x3a4a58, 0.75));
-
-  // Пост-обработка: MSAA-буфер, затенение в углах (GTAO), вывод, лёгкая цветокоррекция.
-  const rt = new THREE.WebGLRenderTarget(1, 1, {type: THREE.HalfFloatType, samples: 4});
-  const composer = new EffectComposer(renderer, rt);
-  composer.addPass(new RenderPass(scene, camera));
-  const gtao = new GTAOPass(scene, camera, 1, 1);
-  gtao.updateGtaoMaterial({radius: 4, distanceExponent: 1.5, thickness: 2, scale: 1.2, samples: 16});
-  gtao.blendIntensity = 0.85;
-  composer.addPass(gtao);
-  composer.addPass(new OutputPass());
-  composer.addPass(new ShaderPass(GRADE));
-
-  // ---------- море ----------
-  const water = makeWater(sunDir, FOG);
-  scene.add(water.mesh);
-
-  const seabed = new THREE.Mesh(
-    new THREE.PlaneGeometry(4000, 4000).rotateX(-Math.PI / 2),
-    new THREE.MeshStandardMaterial({color: 0x6f6650, roughness: 1}),
-  );
-  seabed.position.y = SEABED - 0.2;
-  seabed.receiveShadow = true;
-  scene.add(seabed);
-
-  const ice = makeIce();
-  scene.add(ice);
-
-  // ---------- разрез под дном, скважины ----------
-  const section = makeSection();
-  section.group.visible = false;
-  scene.add(section.group);
-
-  // ---------- танкер ----------
-  const groups = {}; // key → [mesh]
-  const highlightable = []; // меши, по которым работает клик/наведение
-  const register = (o, key) => {
-    o.castShadow = o.receiveShadow = true;
-    o.material = o.material.clone();
-    o.material.userData.e0 = o.material.emissive?.clone();
-    if (o.material.map) o.material.map.anisotropy = renderer.capabilities.getMaxAnisotropy();
-    if (!key) return;
-    (groups[key] ||= []).push(o);
-    o.userData.key = key;
-    highlightable.push(o);
-  };
-
-  const tanker = new THREE.Group();
-  tanker.position.copy(TANKER_POS);
-  tanker.rotation.y = TANKER_ROT;
-  scene.add(tanker);
-  let mixer = null;
-
-  const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-  loader.load(TANKER_URL, (gltf) => {
-    const m = gltf.scene;
-    m.scale.setScalar(TANKER_SCALE);
-    m.traverse((o) => {
-      if (!o.isMesh) return;
-      register(o, 'tanker');
-      // Яркая окраска: насыщеннее и чуть глянцевее исходных серых материалов.
-      const mat = o.material;
-      mat.roughness = Math.min(mat.roughness ?? 1, 0.55);
-      mat.metalness = Math.min(mat.metalness ?? 0, 0.3);
-      const hsl = mat.color.getHSL({});
-      if (hsl.s > 0.2) mat.color.setHSL(hsl.h, Math.min(1, hsl.s * 1.25), Math.min(0.55, hsl.l * 1.15));
-    });
-    tanker.add(m);
-    if (gltf.animations.length) {
-      mixer = new THREE.AnimationMixer(m);
-      for (const clip of gltf.animations) mixer.clipAction(clip).play();
-    }
-  });
-
-  // ---------- отгрузка: насосы, трубопровод по стреле, шланг, швартовный канат ----------
-  tanker.updateMatrixWorld(true);
-  const offload = makeOffloading(tanker);
-  scene.add(offload.group);
-  offload.group.traverse((o) => o.isMesh && register(o, o.userData.key));
-  const shipFlow = makeFlow([offload.flowCurve], 140, 0xffa31a, 2.6, false, 30);
-  shipFlow.points.visible = false;
-  scene.add(shipFlow.points);
-
-  // ---------- модель платформы ----------
-  loader.load(MODEL_URL, (gltf) => {
-    const model = gltf.scene;
-    model.position.y = SEA_OFFSET;
-    model.traverse((o) => {
-      if (HIDE_NODES.includes(o.name)) o.visible = false;
-      if (!o.isMesh) return;
-      let key = null;
-      for (let p = o; p && !key; p = p.parent) key = NODE_KEY[p.name] || null;
-      register(o, key);
-    });
-    scene.add(model);
-    $('loading').classList.add('done');
-  }, (e) => {
-    if (!e.total) return;
-    const k = e.loaded / e.total;
-    $('lbar').style.width = (k * 100).toFixed(0) + '%';
-    $('ltext').textContent = `Загрузка модели платформы… ${(e.loaded / 1e6).toFixed(1)} из ${(e.total / 1e6).toFixed(1)} МБ`;
-  }, (err) => {
-    console.error(err);
-    $('ltext').textContent = 'Не удалось загрузить модель.';
-  });
-
-  // ---------- подписи ----------
-  const labelsEl = $('labels');
-  const hsEls = HOTSPOTS.map((h, i) => {
-    const el = document.createElement('button');
-    el.className = 'hs';
-    el.innerHTML = `<i>${h.step + 1}</i><span>${NAMES[h.key]}</span>`;
-    el.onclick = () => go(h.step);
-    labelsEl.append(el);
-    return {...h, el, v: new THREE.Vector3(...h.p)};
-  });
-  const depthEls = DEPTH_MARKS.map((d) => {
-    const el = document.createElement('div');
-    el.className = 'depth';
-    el.textContent = d.t;
-    labelsEl.append(el);
-    return {el, v: new THREE.Vector3(-262, d.y, 2)};
-  });
-
-  // ---------- шаги ----------
-  let step = -1;
   let sectionOn = false;
-  let fly = null; // {p0,t0,p1,t1,start}
-  const stepBtns = [...$('steps').querySelectorAll('button')];
+  return mountStory(root, {
+    stageNo: 1,
+    title: 'Добыча нефти на шельфе',
+    lead: 'Любое масло начинается с нефти. Посмотрите, как её добывают со дна арктического моря. Вращайте модель, нажимайте на номера и шаги.',
+    steps: STEPS,
+    names: NAMES,
+    hotspots: HOTSPOTS.map((h) => ({...h, visible: h.section ? () => sectionOn : undefined})),
+    next,
+    credits: CREDITS + ' Море, лёд, разрез, насосы и шланг дорисованы. Цифры по открытым источникам, округлены.',
+    tools: [{id: 'bSection', label: 'Разрез до пласта', title: 'Показать разрез под дном'}],
+    build(stage, api) {
+      const ice = makeIce((x, z) => x > 60 && z < -60 && x - z < 700); // коридор танкера чистый
+      stage.scene.add(ice);
 
-  function setSection(on) {
-    sectionOn = on;
-    section.group.visible = on;
-    water.setOpacity(on ? 0.35 : 0.8);
-    ice.visible = !on;
-    controls.maxPolarAngle = on ? Math.PI * 0.98 : Math.PI * 0.485;
-    $('bSection').classList.toggle('on', on);
-    for (const d of depthEls) d.el.style.display = on ? '' : 'none';
-  }
+      const section = makeSection();
+      section.group.visible = false;
+      stage.scene.add(section.group);
 
-  function go(i) {
-    i = Math.max(0, Math.min(STEPS.length - 1, i));
-    step = i;
-    const s = STEPS[i];
-    stepBtns.forEach((b, j) => b.classList.toggle('on', j === i));
-    $('card').innerHTML = `<h2><i>${i + 1}</i>${s.title}</h2>${s.html}`;
-    $('counter').textContent = `${i + 1} / ${STEPS.length}`;
-    $('bPrev').disabled = i === 0;
-    $('bNext').textContent = i === STEPS.length - 1 ? 'Сначала ↺' : 'Дальше →';
-    setSection(!!s.section);
-    shipFlow.points.visible = !!s.flow;
-    fly = {
-      p0: camera.position.clone(), t0: controls.target.clone(),
-      p1: new THREE.Vector3(...s.cam), t1: new THREE.Vector3(...s.tgt), start: performance.now(),
-    };
-    if (matchMedia('(max-width: 900px)').matches) $('card').scrollIntoView({block: 'nearest', behavior: 'smooth'});
-  }
+      const tanker = new THREE.Group();
+      tanker.position.copy(TANKER_AT_PLATFORM.pos);
+      tanker.rotation.y = TANKER_AT_PLATFORM.rot;
+      stage.scene.add(tanker);
+      const offload = makeOffloading(tanker);
+      stage.scene.add(offload.group);
+      stage.registerTree(offload.group);
+      stage.registerTree(offload.station);
+      const shipFlow = makeFlow([offload.flowCurve], 140, 0xffa31a, 2.6, false, 30);
+      stage.scene.add(shipFlow.points);
 
-  stepBtns.forEach((b) => (b.onclick = () => go(+b.dataset.i)));
-  $('bPrev').onclick = () => go(step - 1);
-  $('bNext').onclick = () => go(step === STEPS.length - 1 ? 0 : step + 1);
-  $('bReset').onclick = () => go(0);
-  $('bSection').onclick = () => {
-    if (sectionOn) go(0); else go(3);
-  };
-
-  // ---------- наведение и клик по модели ----------
-  const ray = new THREE.Raycaster();
-  const ndc = new THREE.Vector2();
-  const tip = $('tip');
-  let hoverKey = null;
-  let downAt = null;
-  const pick = (e) => {
-    const r = renderer.domElement.getBoundingClientRect();
-    ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
-    ray.setFromCamera(ndc, camera);
-    const hit = ray.intersectObjects(highlightable, false)[0];
-    return hit?.object.userData.key || null;
-  };
-  const onMove = (e) => {
-    if (e.buttons) return;
-    hoverKey = pick(e);
-    renderer.domElement.style.cursor = hoverKey ? 'pointer' : '';
-    if (hoverKey) {
-      const r = vp.getBoundingClientRect();
-      tip.textContent = NAMES[hoverKey];
-      tip.style.transform = `translate(${e.clientX - r.left + 14}px, ${e.clientY - r.top + 14}px)`;
-      tip.classList.add('on');
-    } else tip.classList.remove('on');
-  };
-  const onDown = (e) => (downAt = [e.clientX, e.clientY]);
-  const onUp = (e) => {
-    if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 5) return;
-    const key = pick(e);
-    const i = STEPS.findIndex((s) => s.focus === key || s.also?.includes(key));
-    if (i >= 0) go(i);
-  };
-  renderer.domElement.addEventListener('pointermove', onMove);
-  renderer.domElement.addEventListener('pointerdown', onDown);
-  renderer.domElement.addEventListener('pointerup', onUp);
-  renderer.domElement.addEventListener('pointerleave', () => tip.classList.remove('on'));
-
-  // ---------- размер ----------
-  const resize = () => {
-    const w = vp.clientWidth, h = vp.clientHeight;
-    renderer.setSize(w, h, false);
-    composer.setPixelRatio(renderer.getPixelRatio());
-    composer.setSize(w, h);
-    camera.aspect = w / h;
-    camera.updateProjectionMatrix();
-  };
-  const ro = new ResizeObserver(resize);
-  ro.observe(vp);
-  resize();
-
-  // ---------- кадр ----------
-  const tmp = new THREE.Vector3();
-  const ORANGE = new THREE.Color(1, 0.5, 0.08);
-  const timer = new THREE.Timer();
-  timer.connect(document);
-  let raf = 0;
-  function frame() {
-    raf = requestAnimationFrame(frame);
-    timer.update();
-    const dt = Math.min(timer.getDelta(), 0.05);
-    const t = timer.getElapsed();
-
-    if (fly) {
-      const k = Math.min(1, (performance.now() - fly.start) / 1600);
-      const e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
-      camera.position.lerpVectors(fly.p0, fly.p1, e);
-      controls.target.lerpVectors(fly.t0, fly.t1, e);
-      if (k >= 1) fly = null;
-    }
-    controls.update();
-
-    water.update(t);
-    section.update(dt);
-    shipFlow.update(dt);
-    tanker.position.y = Math.sin(t * 0.6) * 0.15;
-    mixer?.update(dt);
-
-    // Подсветка: выбранная группа пульсирует, наведённая светится ровно.
-    const focus = STEPS[step]?.focus, also = STEPS[step]?.also;
-    const pulse = 0.18 + 0.12 * Math.sin(t * 3.2);
-    for (const [key, meshes] of Object.entries(groups)) {
-      const amt = key === hoverKey ? 0.32 : key === focus ? pulse : also?.includes(key) ? pulse * 0.6 : 0;
-      for (const m of meshes) {
-        if (!m.material.emissive) continue;
-        if (amt) m.material.emissive.copy(ORANGE).multiplyScalar(amt);
-        else m.material.emissive.copy(m.material.userData.e0 || tmp.set(0, 0, 0));
+      for (const d of DEPTH_MARKS) {
+        stage.addLabel({html: d.t, cls: 'depth', at: new THREE.Vector3(-262, d.y, 2), visible: () => sectionOn});
       }
-    }
 
-    // Подписи следуют за точками в 3D.
-    const w = vp.clientWidth, h = vp.clientHeight;
-    const place = (el, v, show) => {
-      tmp.copy(v).project(camera);
-      const vis = show && tmp.z < 1 && Math.abs(tmp.x) < 1.05 && Math.abs(tmp.y) < 1.05;
-      el.style.visibility = vis ? 'visible' : 'hidden';
-      if (vis) el.style.transform = `translate(${((tmp.x + 1) / 2) * w}px, ${((1 - tmp.y) / 2) * h}px)`;
-    };
-    for (const hs of hsEls) {
-      place(hs.el, hs.v, !hs.section || sectionOn);
-      hs.el.classList.toggle('on', hs.step === step);
-    }
-    for (const d of depthEls) place(d.el, d.v, sectionOn);
+      stage.onFrame((dt, t) => {
+        if (sectionOn) section.update(dt);
+        shipFlow.update(dt);
+        tanker.position.y = Math.sin(t * 0.6) * 0.15;
+      });
 
-    composer.render();
-  }
+      const setSection = (on) => {
+        sectionOn = on;
+        section.group.visible = on;
+        stage.water.setOpacity(on ? 0.35 : 0.8);
+        ice.visible = !on;
+        stage.controls.maxPolarAngle = on ? Math.PI * 0.98 : Math.PI * 0.485;
+        api.$('bSection').classList.toggle('on', on);
+      };
+      api.$('bSection').onclick = () => api.go(sectionOn ? 0 : 3);
 
-  go(0);
-  frame();
+      Promise.all([
+        loadPlatform(stage, (e) => e.total && api.progress(e.loaded, e.total, 'Загрузка модели платформы…')),
+        loadTanker(stage, tanker),
+      ]).then(api.loaded, (err) => { console.error(err); api.error('Не удалось загрузить модель.'); });
 
-  return () => {
-    cancelAnimationFrame(raf);
-    timer.dispose();
-    ro.disconnect();
-    controls.dispose();
-    scene.traverse((o) => {
-      o.geometry?.dispose();
-      const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
-      for (const m of mats) {
-        for (const v of Object.values(m)) if (v?.isTexture) v.dispose();
-        m.dispose();
-      }
-    });
-    envRT.dispose();
-    rt.dispose();
-    gtao.dispose();
-    composer.dispose();
-    pmrem.dispose();
-    renderer.dispose();
-  };
-}
-
-// ======================================================================
-// Море: волны в вершинном шейдере, френель, блик солнца, туман по дальности.
-function makeWater(sunDir, fogColor) {
-  const uniforms = {
-    uTime: {value: 0},
-    uSun: {value: sunDir.clone().normalize()},
-    uDeep: {value: new THREE.Color(0x064766)},
-    uSky: {value: new THREE.Color(0x7fb8dc)},
-    uFog: {value: fogColor},
-    uOpacity: {value: 0.8},
-  };
-  const mat = new THREE.ShaderMaterial({
-    uniforms,
-    transparent: true,
-    depthWrite: false,
-    vertexShader: /* glsl */ `
-      uniform float uTime;
-      varying vec3 vW; varying vec3 vN;
-      float h(vec2 p) {
-        return 0.30 * sin(p.x * 0.045 + uTime * 0.9)
-             + 0.22 * sin(p.y * 0.063 - uTime * 1.15)
-             + 0.12 * sin((p.x + p.y) * 0.11 + uTime * 1.8)
-             + 0.06 * sin((p.x - p.y) * 0.23 + uTime * 2.6);
-      }
-      void main() {
-        vec4 w = modelMatrix * vec4(position, 1.0);
-        float e = 0.6, hh = h(w.xz);
-        vN = normalize(vec3(-(h(w.xz + vec2(e, 0.0)) - hh) / e, 1.0, -(h(w.xz + vec2(0.0, e)) - hh) / e));
-        w.y += hh;
-        vW = w.xyz;
-        gl_Position = projectionMatrix * viewMatrix * w;
-      }`,
-    fragmentShader: /* glsl */ `
-      uniform vec3 uSun, uDeep, uSky, uFog; uniform float uOpacity;
-      varying vec3 vW; varying vec3 vN;
-      void main() {
-        vec3 n = normalize(vN), v = normalize(cameraPosition - vW);
-        float fr = pow(1.0 - max(dot(n, v), 0.0), 4.0);
-        vec3 col = mix(uDeep, uSky, clamp(0.06 + fr * 0.9, 0.0, 1.0));
-        vec3 hv = normalize(v + uSun);
-        col += vec3(1.0, 0.86, 0.68) * pow(max(dot(n, hv), 0.0), 400.0) * 1.6;
-        float d = length(cameraPosition - vW);
-        float f = smoothstep(700.0, 3200.0, d);
-        col = mix(col, uFog, f);
-        gl_FragColor = vec4(col, mix(uOpacity + fr * 0.2, 1.0, f));
-        #include <tonemapping_fragment>
-        #include <colorspace_fragment>
-      }`,
+      return {
+        onStep(i) {
+          const s = STEPS[i];
+          setSection(!!s.section);
+          shipFlow.points.visible = !!s.flow;
+        },
+      };
+    },
   });
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(7000, 7000, 280, 280).rotateX(-Math.PI / 2), mat);
-  mesh.renderOrder = 2;
-  return {
-    mesh,
-    update: (t) => (uniforms.uTime.value = t),
-    setOpacity: (a) => (uniforms.uOpacity.value = a),
-  };
-}
-
-// Дрейфующий лёд вокруг платформы.
-function makeIce() {
-  const g = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({color: 0xe8f0f6, roughness: 0.85});
-  let seed = 7;
-  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  for (let i = 0; i < 90; i++) {
-    const a = rnd() * Math.PI * 2, r = 230 + rnd() * 900;
-    const x = Math.cos(a) * r, z = Math.sin(a) * r;
-    if (x > 60 && z < -60 && x - z < 700) continue; // коридор танкера чистый
-    const geo = new THREE.CylinderGeometry(1, 1, 1, 6 + Math.floor(rnd() * 4));
-    const pos = geo.attributes.position;
-    for (let k = 0; k < pos.count; k++) {
-      const s = 0.75 + rnd() * 0.5;
-      pos.setX(k, pos.getX(k) * s);
-      pos.setZ(k, pos.getZ(k) * s);
-    }
-    geo.computeVertexNormals();
-    const m = new THREE.Mesh(geo, mat);
-    const size = 6 + rnd() * 26;
-    m.scale.set(size * (0.6 + rnd() * 0.8), 1.4, size * (0.6 + rnd() * 0.8));
-    m.position.set(x, 0.1, z);
-    m.rotation.y = rnd() * Math.PI;
-    m.receiveShadow = true;
-    g.add(m);
-  }
-  return g;
 }
 
 // ======================================================================
@@ -698,32 +276,5 @@ function makeSection() {
   group.add(oil.points, wat.points);
 
   return {group, update: (dt) => { if (group.visible) { oil.update(dt); wat.update(dt); } }};
-}
-
-// Частицы, бегущие вдоль кривых: нефть вверх (reverse), вода вниз.
-function makeFlow(curves, perCurve, color, size, reverse, speed = 45) {
-  const n = curves.length * perCurve;
-  const pos = new Float32Array(n * 3);
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const t = Float32Array.from({length: n}, (_, i) => (i % perCurve) / perCurve);
-  const lens = curves.map((c) => c.getLength());
-  const points = new THREE.Points(geo, new THREE.PointsMaterial({
-    color, size, sizeAttenuation: true, transparent: true, opacity: 0.95, depthWrite: false, fog: false,
-  }));
-  points.renderOrder = 3;
-  points.frustumCulled = false;
-  const v = new THREE.Vector3();
-  const update = (dt) => {
-    for (let i = 0; i < n; i++) {
-      const ci = Math.floor(i / perCurve);
-      t[i] = (t[i] + (dt * speed) / lens[ci]) % 1;
-      curves[ci].getPointAt(reverse ? 1 - t[i] : t[i], v);
-      pos[i * 3] = v.x; pos[i * 3 + 1] = v.y; pos[i * 3 + 2] = v.z;
-    }
-    geo.attributes.position.needsUpdate = true;
-  };
-  update(0);
-  return {points, update};
 }
 

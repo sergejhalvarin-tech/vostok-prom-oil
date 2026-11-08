@@ -1,0 +1,451 @@
+// Береговой нефтеналивной терминал (по фото порта): каменная отсыпка берега, дорога,
+// трубопроводная эстакада, причал на сваях с эстакадой-подходом, морские стендеры,
+// швартовные и отбойные палы с кранцами, резервуарный парк с обвалованием, город на заднем плане.
+// Берег — линия x = 1700, суша в +x. Танкер у причала стоит носом в +z, левым бортом к причалу.
+import * as THREE from 'three';
+import {setLink, sagPoints} from '../kit/sea.js';
+
+export const SHORE_X = 1700;
+export const LAND_Y = 3;
+export const DECK_Y = 7;                 // верх палубы причала
+export const JETTY_FACE_X = 1519.8;       // лицевая грань кранцев
+export const BERTH = {pos: new THREE.Vector3(1501.5, 0, 37), rot: Math.PI};
+export const ARM_Z = [-10, 0, 10];
+const ARM_X = 1528;
+const RACK_X = 1767.5, RACK_Y = 9.5;
+const COLS = [1870, 1965, 2060];
+const ROWS = Array.from({length: 10}, (_, i) => -460 + i * 100);
+const TANK_R = 36, TANK_H = 20;
+export const TARGET_TANKS = [[0, 4], [0, 5], [0, 6]]; // [колонка, ряд] — принимают нефть с танкера
+
+let seed = 11;
+const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+const mat = (color, o = {}) => new THREE.MeshStandardMaterial({color, roughness: 0.6, metalness: 0.1, ...o});
+const C = {
+  concrete: mat(0xcfccc3, {roughness: 0.9}), asphalt: mat(0x3a3e43, {roughness: 0.95}), grass: mat(0x8fae5d, {roughness: 1}),
+  gravel: mat(0xd9d2bf, {roughness: 1}), white: mat(0xf6f6f2, {roughness: 0.45}), steel: mat(0xc4ced6, {metalness: 0.8, roughness: 0.3}),
+  green: mat(0x1fae55, {metalness: 0.3, roughness: 0.4}), yellow: mat(0xffc21a, {roughness: 0.45}), red: mat(0xe8322a, {roughness: 0.45}),
+  dark: mat(0x1d1f22, {roughness: 0.8}), blue: mat(0x1d6fe0, {roughness: 0.4}), roof: mat(0x8e959b, {metalness: 0.4, roughness: 0.5}),
+  inner: mat(0x5d6368, {roughness: 0.8, side: THREE.BackSide}), glass: mat(0x5aa9e6, {metalness: 0.6, roughness: 0.15}),
+  rope: mat(0xffd23f, {roughness: 0.8}),
+};
+
+function box(w, h, d, m, x, y, z, key) {
+  const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+  o.position.set(x, y, z);
+  o.userData.key = key;
+  return o;
+}
+function cyl(r, h, m, x, y, z, key, seg = 20) {
+  const o = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, seg), m);
+  o.position.set(x, y, z);
+  o.userData.key = key;
+  return o;
+}
+const linkGeo = (r, seg = 12) => new THREE.CylinderGeometry(r, r, 1, seg);
+function link(a, b, r, m, key) {
+  const o = new THREE.Mesh(linkGeo(r), m);
+  setLink(o, a, b);
+  o.userData.key = key;
+  return o;
+}
+function tube(points, r, m, key, seg = 120) {
+  const o = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), seg, r, 10), m);
+  o.userData.key = key;
+  return o;
+}
+const V = (x, y, z) => new THREE.Vector3(x, y, z);
+
+// ======================================================================
+export function buildTerminal() {
+  const group = new THREE.Group();
+  const add = (...o) => group.add(...o);
+
+  // --- Суша, площадки, дороги ---
+  add(box(2600, 30, 3400, C.grass, SHORE_X + 1300, LAND_Y - 15, 0));
+  const pad = (x0, x1, z0, z1, m, y = LAND_Y + 0.05) => add(box(x1 - x0, 0.1, z1 - z0, m, (x0 + x1) / 2, y, (z0 + z1) / 2));
+  pad(1702, 1740, -1700, 1700, C.gravel);                      // полоса вдоль берега
+  pad(1728, 1744, -1700, 1700, C.asphalt, LAND_Y + 0.1);       // береговая дорога
+  pad(1822, 2110, -520, 500, C.gravel);                         // площадка резервуарного парка
+  for (const x of [1917.5, 2012.5, 2112]) pad(x - 4, x + 4, -520, 500, C.asphalt, LAND_Y + 0.12);
+  pad(1744, 1822, -540, -520, C.asphalt, LAND_Y + 0.12);
+  pad(1750, 1792, 30, 95, C.asphalt, LAND_Y + 0.12);            // стоянка у причала
+  // Разметка дороги.
+  const dash = new THREE.InstancedMesh(new THREE.BoxGeometry(0.25, 0.02, 4), mat(0xffffff), 340);
+  for (let i = 0; i < 340; i++) dash.setMatrixAt(i, new THREE.Matrix4().makeTranslation(1736, LAND_Y + 0.13, -1690 + i * 10));
+  add(dash);
+
+  // --- Каменная отсыпка берега ---
+  const N = 3600;
+  const rocks = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), mat(0xffffff, {roughness: 0.95}), N);
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), s = new THREE.Vector3(), col = new THREE.Color();
+  for (let i = 0; i < N; i++) {
+    const x = SHORE_X - 14 + rnd() * 16, z = -1700 + rnd() * 3400;
+    const y = LAND_Y - ((SHORE_X + 2 - x) / 14) * 9 + rnd() * 0.6;
+    const r = 1.2 + rnd() * 1.8;
+    q.setFromEuler(e.set(rnd() * 3, rnd() * 3, rnd() * 3));
+    rocks.setMatrixAt(i, m4.compose(V(x, y, z), q, s.set(r, r * (0.6 + rnd() * 0.4), r)));
+    rocks.setColorAt(i, col.setHSL(0.08 + rnd() * 0.04, 0.12, 0.42 + rnd() * 0.2));
+  }
+  add(rocks);
+  add(box(6, 1, 3400, C.concrete, SHORE_X + 3, LAND_Y + 0.4, 0)); // кромка набережной
+
+  // --- Фонари вдоль дороги ---
+  const lampN = 85;
+  const poles = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.15, 0.2, 10, 8), C.steel, lampN);
+  const heads = new THREE.InstancedMesh(new THREE.BoxGeometry(1.6, 0.35, 0.6), mat(0xfff6d0, {emissive: 0xfff2c0, emissiveIntensity: 0.6}), lampN);
+  for (let i = 0; i < lampN; i++) {
+    const z = -1680 + i * 40;
+    poles.setMatrixAt(i, m4.makeTranslation(1726, LAND_Y + 5, z));
+    heads.setMatrixAt(i, m4.makeTranslation(1727, LAND_Y + 10, z));
+  }
+  add(poles, heads);
+
+  // --- Трубопроводная эстакада вдоль берега ---
+  const rack = new THREE.Group();
+  for (let z = -560; z <= 560; z += 10) {
+    rack.add(box(0.5, 9.5, 0.5, C.steel, RACK_X - 7, LAND_Y + 4.75, z, 'pipes'), box(0.5, 9.5, 0.5, C.steel, RACK_X + 7, LAND_Y + 4.75, z, 'pipes'));
+    rack.add(box(14.5, 0.5, 0.6, C.steel, RACK_X, LAND_Y + 5.5, z, 'pipes'), box(14.5, 0.5, 0.6, C.steel, RACK_X, RACK_Y - 0.6, z, 'pipes'));
+  }
+  const pipeCols = [C.steel, C.yellow, C.steel, C.white, C.steel, C.red, C.steel, C.blue];
+  pipeCols.forEach((m, i) => {
+    const x = RACK_X - 6 + (i % 4) * 4, y = i < 4 ? RACK_Y : LAND_Y + 6.3;
+    const p = cyl(i < 4 ? 0.55 : 0.4, 1120, m, x, y, 0, 'pipes', 16);
+    p.rotation.x = Math.PI / 2;
+    rack.add(p);
+  });
+  add(rack);
+
+  // --- Причал: эстакада-подход, площадка, сваи ---
+  const jetty = new THREE.Group();
+  add(jetty);
+  jetty.add(box(SHORE_X + 2 - 1560, 1.2, 12, C.concrete, (SHORE_X + 2 + 1560) / 2, DECK_Y - 0.6, 0, 'jetty'));
+  jetty.add(box(40, 1.6, 56, C.concrete, 1542, DECK_Y - 0.8, 0, 'jetty'));
+  const pileGeo = new THREE.CylinderGeometry(0.6, 0.6, 1, 10);
+  const piles = [];
+  for (let x = 1566; x < SHORE_X; x += 14) piles.push([x, -5], [x, 5]);
+  for (let x = 1526; x <= 1558; x += 8) for (let z = -24; z <= 24; z += 8) piles.push([x, z]);
+  // Палы: отбойные (с кранцами) и швартовные.
+  const breast = [-62, 62], moor = [-175, 175];
+  for (const z of breast) {
+    jetty.add(box(10, 3, 10, C.concrete, 1526, DECK_Y - 1.5, z, 'jetty'));
+    jetty.add(box(1.6, 7, 9, C.dark, 1520.6, 3.5, z, 'jetty'));
+    for (const dz of [-3, 3]) for (const dx of [-3, 3]) piles.push([1526 + dx, z + dz]);
+  }
+  for (const z of [-18, 18]) jetty.add(box(1.6, 6, 7, C.dark, 1520.6, 4, z, 'jetty'));
+  for (const z of moor) {
+    jetty.add(box(9, 3, 9, C.concrete, 1545, DECK_Y - 1.5, z, 'jetty'));
+    for (const dx of [-2, 2]) jetty.add(cyl(0.55, 1.4, C.yellow, 1545 + dx, DECK_Y + 0.7, z, 'jetty', 12)); // гаки
+    for (const dz of [-2.5, 2.5]) for (const dx of [-2.5, 2.5]) piles.push([1545 + dx, z + dz]);
+  }
+  const pileMesh = new THREE.InstancedMesh(pileGeo, C.concrete, piles.length);
+  piles.forEach(([x, z], i) => pileMesh.setMatrixAt(i, m4.compose(V(x, -7, z), q.identity(), s.set(1, 26, 1))));
+  jetty.add(pileMesh);
+  // Мостики между площадкой и палами.
+  const walk = (a, b) => {
+    jetty.add(link(a, b, 0.7, C.steel, 'jetty'));
+    jetty.add(link(a.clone().add(V(0, 1.2, 0.6)), b.clone().add(V(0, 1.2, 0.6)), 0.06, C.yellow, 'jetty'));
+    jetty.add(link(a.clone().add(V(0, 1.2, -0.6)), b.clone().add(V(0, 1.2, -0.6)), 0.06, C.yellow, 'jetty'));
+  };
+  for (const sg of [-1, 1]) {
+    walk(V(1530, DECK_Y, 28 * sg), V(1528, DECK_Y, 57 * sg));
+    walk(V(1529, DECK_Y, 67 * sg), V(1544, DECK_Y, 170.5 * sg));
+  }
+  // Перила эстакады.
+  for (const z of [-5.8, 5.8]) jetty.add(box(SHORE_X - 1560, 0.12, 0.12, C.yellow, (SHORE_X + 1560) / 2, DECK_Y + 1.1, z, 'jetty'));
+  // Операторная, трап-башня, лафетные стволы, мачты освещения.
+  jetty.add(box(7, 3.6, 5, C.white, 1553, DECK_Y + 1.8, -20, 'jetty'));
+  jetty.add(box(7.1, 1, 5.1, C.glass, 1553, DECK_Y + 2.6, -20, 'jetty'));
+  jetty.add(box(7.4, 0.4, 5.4, C.blue, 1553, DECK_Y + 3.8, -20, 'jetty'));
+  jetty.add(box(3, 15, 3, C.steel, 1526, DECK_Y + 7.5, 22, 'jetty'));
+  jetty.add(box(10, 0.6, 1.8, C.yellow, 1521, DECK_Y + 12, 22, 'jetty'));
+  for (const z of [-25, 25]) {
+    jetty.add(cyl(0.5, 14, C.red, 1537, DECK_Y + 7, z, 'jetty', 12));
+    jetty.add(box(2.4, 1.2, 2.4, C.red, 1537, DECK_Y + 14, z, 'jetty'));
+    jetty.add(link(V(1537, DECK_Y + 14.4, z), V(1532, DECK_Y + 15.5, z * 0.8), 0.25, C.red, 'jetty'));
+  }
+  for (const [x, z] of [[1560, -27], [1560, 27]]) {
+    jetty.add(cyl(0.3, 22, C.steel, x, DECK_Y + 11, z, 'jetty', 10));
+    jetty.add(box(2.5, 0.6, 1.2, mat(0xfff6d0, {emissive: 0xfff2c0, emissiveIntensity: 0.6}), x - 1, DECK_Y + 22, z, 'jetty'));
+  }
+  // Трубопроводы по эстакаде от стендеров к берегу и на эстакаду вдоль берега.
+  const trunkY = DECK_Y + 0.9;
+  const trunk = [V(ARM_X + 4, trunkY, -2), V(1562, trunkY, -2), V(SHORE_X + 2, trunkY, -2), V(1745, trunkY, -2), V(1752, RACK_Y, -2), V(RACK_X - 6, RACK_Y, -2)];
+  jetty.add(tube(trunk, 0.55, C.yellow, 'pipes', 200));
+  jetty.add(tube(trunk.map((p) => p.clone().add(V(0, 0, -2.4))), 0.45, C.steel, 'pipes', 200));
+  jetty.add(tube(trunk.map((p) => p.clone().add(V(0, 0, 2.4))), 0.45, C.steel, 'pipes', 200));
+  for (let x = SHORE_X + 8; x < 1752; x += 9) jetty.add(box(0.5, trunkY - LAND_Y, 8, C.steel, x, (trunkY + LAND_Y) / 2 - 0.5, -2, 'pipes'));
+
+  // --- Морские стендеры ---
+  const arms = ARM_Z.map((z) => makeArm(V(ARM_X, DECK_Y, z)));
+  for (const a of arms) jetty.add(a.group);
+  const armsHeader = tube([V(ARM_X + 1.5, DECK_Y + 0.9, -14), V(ARM_X + 1.5, DECK_Y + 0.9, 14)], 0.6, C.yellow, 'arms', 20);
+  jetty.add(armsHeader, link(V(ARM_X + 1.5, DECK_Y + 0.9, -2), V(ARM_X + 4, trunkY, -2), 0.55, C.yellow, 'arms'));
+
+  // --- Резервуарный парк ---
+  const tanks = [];
+  COLS.forEach((x, ci) => {
+    // Обвалование колонки: продольные стенки и поперечные через каждые два резервуара.
+    for (const dx of [-44, 44]) add(box(0.6, 2.2, 1000, C.concrete, x + dx, LAND_Y + 1.1, -10, 'farm'));
+    for (let z = -510; z <= 490; z += 200) add(box(88, 2.2, 0.6, C.concrete, x, LAND_Y + 1.1, z, 'farm'));
+    // Сборный коллектор вдоль колонки.
+    const hdr = cyl(0.5, 990, C.steel, x - 41, LAND_Y + 1.2, -10, 'farm', 12);
+    hdr.rotation.x = Math.PI / 2;
+    add(hdr);
+    ROWS.forEach((z, ri) => {
+      const target = TARGET_TANKS.some(([c, r]) => c === ci && r === ri);
+      const type = target || (ci + ri) % 4 === 1 ? 'floating' : 'dome';
+      const t = makeTank(TANK_R, TANK_H, type, target ? 0.3 : 0.25 + rnd() * 0.6, ci === 0 && ri % 3 === 0);
+      t.group.position.set(x, LAND_Y + 0.4, z);
+      t.group.rotation.y = rnd() * Math.PI * 2;
+      t.group.traverse((o) => (o.userData.key = target ? 'tanks' : 'farm'));
+      add(t.group);
+      add(link(V(x - 41, LAND_Y + 1.2, z), V(x - TANK_R, LAND_Y + 1.2, z), 0.35, C.steel, 'farm'));
+      tanks.push({...t, ci, ri, x, z, target});
+    });
+  });
+
+  // Ветки от эстакады к принимающим резервуарам — по ним идёт нефть.
+  const branches = TARGET_TANKS.map(([ci, ri]) => {
+    const x = COLS[ci], z = ROWS[ri];
+    const pts = [V(RACK_X - 6, RACK_Y, -2), V(RACK_X - 6, RACK_Y, z), V(RACK_X + 8, RACK_Y, z), V(1806, RACK_Y, z), V(1812, LAND_Y + 2, z), V(x - TANK_R - 0.2, LAND_Y + 2, z)];
+    add(tube(pts.slice(1), 0.5, C.yellow, 'pipes', 80));
+    return pts;
+  });
+
+  // --- Здания терминала ---
+  const bld = (w, h, d, x, z, m = C.white, roofM = C.blue, key = 'farm') => {
+    add(box(w, h, d, m, x, LAND_Y + h / 2, z, key), box(w + 0.6, 0.6, d + 0.6, roofM, x, LAND_Y + h + 0.3, z, key));
+    add(box(w + 0.05, 1.2, d + 0.05, C.glass, x, LAND_Y + h * 0.6, z, key));
+  };
+  bld(26, 9, 16, 1800, -20, mat(0xdfe3e6), C.blue, 'pipes'); // насосная станция
+  bld(40, 14, 18, 1795, -620);                               // административное здание
+  bld(22, 10, 22, 1795, 640, C.red, C.white);                // пожарное депо
+  // Машины на стоянке.
+  const cars = new THREE.InstancedMesh(new THREE.BoxGeometry(4.5, 1.6, 2), mat(0xffffff, {metalness: 0.5, roughness: 0.35}), 48);
+  for (let i = 0; i < 48; i++) {
+    cars.setMatrixAt(i, m4.makeTranslation(1756 + (i % 8) * 4.8, LAND_Y + 0.9, 36 + Math.floor(i / 8) * 9));
+    cars.setColorAt(i, col.setHSL(rnd(), rnd() < 0.4 ? 0 : 0.7, rnd() < 0.3 ? 0.9 : 0.25 + rnd() * 0.35));
+  }
+  add(cars);
+  // Деревья по периметру.
+  const trees = 220;
+  const crowns = new THREE.InstancedMesh(new THREE.ConeGeometry(3.2, 9, 7), mat(0x3f8f3a, {roughness: 0.9}), trees);
+  const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.35, 0.45, 3, 6), mat(0x6b4a2b), trees);
+  for (let i = 0; i < trees; i++) {
+    const x = 2130 + rnd() * 120, z = -900 + rnd() * 1800, k = 0.7 + rnd() * 0.6;
+    crowns.setMatrixAt(i, m4.compose(V(x, LAND_Y + 3 + 4.5 * k, z), q.identity(), s.set(k, k, k)));
+    trunks.setMatrixAt(i, m4.makeTranslation(x, LAND_Y + 1.5, z));
+  }
+  add(crowns, trunks);
+
+  // --- Порт и город на заднем плане ---
+  for (let i = 0; i < 70; i++) {
+    const x = 1760 + rnd() * 700, z = 700 + rnd() * 900, h = 8 + rnd() * 40, w = 14 + rnd() * 26;
+    add(box(w, h, w * (0.6 + rnd() * 0.8), mat(new THREE.Color().setHSL(0.05 + rnd() * 0.6, 0.25, 0.65 + rnd() * 0.2)), x, LAND_Y + h / 2, z));
+  }
+  for (const z of [760, 860, 960]) { // портальные краны
+    const red = C.red;
+    for (const dx of [-6, 6]) for (const dz of [-5, 5]) add(box(1, 30, 1, red, 1712 + dx, LAND_Y + 15, z + dz));
+    add(box(14, 2, 12, red, 1712, LAND_Y + 30, z), box(70, 2, 2.4, red, 1700, LAND_Y + 33, z));
+  }
+  // Мол с маяком.
+  add(box(18, 6, 600, C.concrete, 1300, 0.5, 1150));
+  add(cyl(2.5, 16, C.red, 1300, 11, 860, undefined, 16), cyl(2.6, 3, C.white, 1300, 20.5, 860, undefined, 16));
+
+  return {group, arms, tanks, branches, trunk};
+}
+
+// ======================================================================
+// Морской стендер: стояк, шарнир, внутреннее плечо с противовесом, наружное плечо, соединитель.
+// solve(target) раскладывает плечи так, чтобы соединитель пришёл в target (плоская ОЗК в плоскости x–y).
+function makeArm(base) {
+  const L1 = 13, L2 = 13;
+  const g = new THREE.Group();
+  const P = base.clone().add(V(0, 13, 0));
+  const u = V(-1, 0, 0);
+  g.add(box(3, 1.4, 3, C.green, base.x, base.y + 0.7, base.z, 'arms'));
+  g.add(link(base, P, 0.55, C.green, 'arms'));
+  const pivot = cyl(0.85, 1.8, C.yellow, P.x, P.y, P.z, 'arms');
+  pivot.rotation.x = Math.PI / 2;
+  g.add(pivot);
+  const inner = new THREE.Mesh(linkGeo(0.48), C.green), outer = new THREE.Mesh(linkGeo(0.42), C.green);
+  const cwBeam = new THREE.Mesh(linkGeo(0.3), C.dark), cw = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.4, 2.4), C.yellow);
+  const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.85, 16, 12), C.yellow);
+  const swivel = new THREE.Mesh(new THREE.TorusGeometry(0.6, 0.22, 8, 18), C.yellow);
+  const coupler = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.5, 1.6, 16), C.red);
+  for (const o of [inner, outer, cwBeam, cw, elbow, swivel, coupler]) { o.userData.key = 'arms'; g.add(o); }
+  const E = new THREE.Vector3();
+  const stowed = P.clone().addScaledVector(u, 1.6).add(V(0, -9.5, 0));
+  function solve(T) {
+    const d = T.clone().sub(P);
+    const h = d.dot(u), v = d.y;
+    const D = Math.min(Math.hypot(h, v), L1 + L2 - 0.01);
+    const a = Math.atan2(v, h);
+    const B = Math.acos(THREE.MathUtils.clamp((L1 * L1 + D * D - L2 * L2) / (2 * L1 * D), -1, 1));
+    const th = a + B; // локоть вверх
+    E.copy(P).addScaledVector(u, L1 * Math.cos(th)).add(V(0, L1 * Math.sin(th), 0));
+    E.z = P.z;
+    const tip = T.clone().add(V(0, 1.6, 0));
+    setLink(inner, P, E);
+    setLink(outer, E, tip);
+    const back = P.clone().addScaledVector(E.clone().sub(P).normalize(), -5);
+    setLink(cwBeam, P, back);
+    cw.position.copy(back);
+    elbow.position.copy(E);
+    swivel.position.copy(tip);
+    coupler.position.copy(T).add(V(0, 0.8, 0));
+  }
+  solve(stowed);
+  return {group: g, solve, stowed, P, elbow: E};
+}
+
+// ======================================================================
+// Вертикальный стальной резервуар. type: 'floating' — открытый верх с плавающей крышей, 'dome' — стационарная крыша.
+let shellTex = null, brandTex = null;
+function textures() {
+  if (shellTex) return;
+  const cv = document.createElement('canvas');
+  cv.width = 512; cv.height = 64;
+  const g = cv.getContext('2d');
+  g.fillStyle = '#f7f7f3'; g.fillRect(0, 0, 512, 64);
+  g.fillStyle = 'rgba(80,90,100,0.35)'; g.fillRect(0, 62, 512, 2);           // горизонтальный шов пояса
+  for (let x = 0; x < 512; x += 128) g.fillRect(x + (x % 256 ? 64 : 0), 0, 1.5, 62); // вертикальные швы вразбежку
+  g.fillStyle = 'rgba(120,110,90,0.08)'; g.fillRect(0, 40, 512, 22);          // лёгкие подтёки
+  shellTex = new THREE.CanvasTexture(cv);
+  shellTex.colorSpace = THREE.SRGBColorSpace;
+  shellTex.wrapS = shellTex.wrapT = THREE.RepeatWrapping;
+  shellTex.repeat.set(8, TANK_H / 2.4);
+  shellTex.anisotropy = 8;
+
+  const bc = document.createElement('canvas');
+  bc.width = 1024; bc.height = 160;
+  const b = bc.getContext('2d');
+  b.font = '800 104px Inter, Segoe UI, sans-serif';
+  b.textAlign = 'center'; b.textBaseline = 'middle';
+  b.fillStyle = '#123a63'; b.fillText('ВОСТОК', 300, 84);
+  b.fillStyle = '#f08a12'; b.fillText('ПРОМ', 640, 84);
+  b.fillStyle = '#123a63'; b.fillText('ОЙЛ', 880, 84);
+  brandTex = new THREE.CanvasTexture(bc);
+  brandTex.colorSpace = THREE.SRGBColorSpace;
+  brandTex.anisotropy = 8;
+}
+
+function makeTank(r, h, type, level, brand) {
+  textures();
+  const g = new THREE.Group();
+  const shellMat = new THREE.MeshStandardMaterial({color: 0xffffff, map: shellTex, roughness: 0.45, metalness: 0.1});
+  g.add(cyl(r + 1.6, 0.8, C.concrete, 0, 0, 0, undefined, 64));                     // фундаментное кольцо
+  const shell = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 96, 1, true), shellMat);
+  shell.position.y = h / 2 + 0.4;
+  g.add(shell);
+  const top = h + 0.4;
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(r + 0.5, 0.32, 6, 96), C.white);   // кольцо жёсткости
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = top - 1.5;
+  g.add(ring);
+  let roof = null;
+  if (type === 'floating') {
+    const inner = new THREE.Mesh(new THREE.CylinderGeometry(r - 0.05, r - 0.05, h, 96, 1, true), C.inner);
+    inner.position.y = h / 2 + 0.4;
+    roof = new THREE.Group();
+    roof.add(new THREE.Mesh(new THREE.CylinderGeometry(r - 0.7, r - 0.7, 0.9, 96), C.roof));
+    const pont = new THREE.Mesh(new THREE.TorusGeometry(r - 3, 0.6, 8, 96), mat(0xaab1b7, {metalness: 0.4}));
+    pont.rotation.x = Math.PI / 2;
+    pont.position.y = 0.6;
+    roof.add(pont);
+    roof.add(cyl(1.5, 1.2, mat(0x6f777e), 0, 0.8, 0, undefined, 16));
+    g.add(inner, roof);
+    const rail = new THREE.Mesh(new THREE.TorusGeometry(r, 0.07, 4, 96), C.yellow);       // перила по верху
+    rail.rotation.x = Math.PI / 2;
+    rail.position.y = top + 1.1;
+    g.add(rail);
+  } else {
+    const hd = 3.2, Rs = (r * r + hd * hd) / (2 * hd);
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(Rs, 96, 16, 0, Math.PI * 2, 0, Math.asin(r / Rs)), C.white);
+    dome.position.y = top + hd - Rs;
+    g.add(dome);
+    g.add(cyl(1.2, 1.4, C.steel, r * 0.5, top + 2.4, 0, undefined, 12));               // дыхательный клапан
+  }
+  // Винтовая лестница по стенке.
+  const a0 = 0.4, a1 = 1.7, R = r + 1.2;
+  const helix = (dr, dy) => Array.from({length: 40}, (_, i) => {
+    const k = i / 39, a = a0 + (a1 - a0) * k;
+    return V(Math.sin(a) * (R + dr), 0.6 + k * (top - 0.6) + dy, Math.cos(a) * (R + dr));
+  });
+  g.add(tube(helix(0, 0), 0.5, C.yellow, undefined, 80), tube(helix(0.6, 1.1), 0.07, C.yellow, undefined, 80));
+  const landing = box(3, 0.3, 3, C.yellow, Math.sin(a1) * R, top + 0.1, Math.cos(a1) * R);
+  g.add(landing);
+  // Пенокамеры пожаротушения по верхнему поясу.
+  for (let k = 0; k < 6; k++) {
+    const a = (k / 6) * Math.PI * 2 + 0.2;
+    g.add(box(1, 1.4, 1, C.red, Math.sin(a) * (r + 0.6), top - 0.6, Math.cos(a) * (r + 0.6)));
+  }
+  // Фирменная надпись.
+  if (brand) {
+    const decal = new THREE.Mesh(
+      new THREE.CylinderGeometry(r + 0.06, r + 0.06, 7, 48, 1, true, Math.PI * 1.5 - 0.62, 1.24),
+      new THREE.MeshStandardMaterial({map: brandTex, transparent: true, roughness: 0.5}),
+    );
+    decal.position.y = h * 0.55;
+    g.add(decal);
+  }
+  const setLevel = (k) => { if (roof) roof.position.y = 0.9 + k * (h - 2); };
+  setLevel(level);
+  return {group: g, roof, setLevel, type, brand};
+}
+
+// ======================================================================
+// Швартовные концы от танкера у причала к палам. set(k): 0 — не заведены, 1 — все заведены.
+export function makeMooring(tanker) {
+  const group = new THREE.Group();
+  tanker.updateMatrixWorld(true);
+  const w = (x, y, z) => tanker.localToWorld(V(x, y, z));
+  const lines = [
+    [w(-6, 9.5, -84), V(1545, DECK_Y + 1.2, 175)], [w(-8, 9.5, -78), V(1545, DECK_Y + 1.2, 173)],
+    [w(-14, 9, -50), V(1526, DECK_Y + 0.5, 62)], [w(-14, 9, 100), V(1526, DECK_Y + 0.5, -62)],
+    [w(-8, 10, 150), V(1545, DECK_Y + 1.2, -173)], [w(-6, 10, 156), V(1545, DECK_Y + 1.2, -175)],
+  ].map(([a, b]) => {
+    const m = tube(sagPoints(a, b, 1.6, 24), 0.22, C.rope, 'mooring', 60);
+    group.add(m);
+    return m;
+  });
+  const set = (k) => lines.forEach((m, i) => {
+    const ki = THREE.MathUtils.clamp(k * lines.length - i, 0, 1);
+    m.visible = ki > 0;
+    m.geometry.setDrawRange(0, Math.round((m.geometry.index.count * ki) / 6) * 6);
+  });
+  set(0);
+  return {group, set};
+}
+
+// ======================================================================
+// Буксир: корпус, рубка, труба, кранцы. Нос в −z.
+export function makeTug() {
+  const g = new THREE.Group();
+  const s = new THREE.Shape();
+  s.moveTo(-5.5, 14); s.lineTo(5.5, 14); s.lineTo(5.5, -6);
+  s.quadraticCurveTo(5, -13, 0, -16); s.quadraticCurveTo(-5, -13, -5.5, -6); s.closePath();
+  const hull = (d, m, y) => {
+    const o = new THREE.Mesh(new THREE.ExtrudeGeometry(s, {depth: d, bevelEnabled: false}).rotateX(Math.PI / 2), m);
+    o.position.y = y;
+    o.userData.key = 'tugs';
+    g.add(o);
+  };
+  hull(3, C.dark, 0);
+  hull(3.2, C.red, 3.2);
+  const deck = new THREE.Mesh(new THREE.ShapeGeometry(s).rotateX(Math.PI / 2), mat(0x4c5a4a));
+  deck.position.y = 3.25;
+  deck.rotation.x = Math.PI;
+  deck.userData.key = 'tugs';
+  g.add(deck);
+  g.add(box(8, 3, 9, C.white, 0, 4.7, -3, 'tugs'), box(7, 2.6, 6, C.white, 0, 7.5, -4, 'tugs'), box(7.2, 1, 6.2, C.glass, 0, 8, -4, 'tugs'));
+  g.add(cyl(0.9, 4, C.dark, 0, 8, 3, 'tugs', 12), cyl(0.95, 0.9, C.red, 0, 9, 3, 'tugs', 12));
+  const fender = new THREE.Mesh(new THREE.TorusGeometry(5.6, 0.7, 8, 30, Math.PI), C.dark);
+  fender.rotation.x = Math.PI / 2;
+  fender.position.set(0, 3.3, -9.5);
+  fender.rotation.z = Math.PI;
+  fender.userData.key = 'tugs';
+  g.add(fender);
+  return g;
+}

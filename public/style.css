@@ -113,3 +113,12 @@ main { padding-top: var(--top); height: 100%; }
   .hs span { display: none; }
   .hs { padding: 0; }
 }
+
+/* ---------- HUD рейса и уровни резервуаров ---------- */
+.hud { position: absolute; left: 14px; top: 14px; display: flex; flex-direction: column; gap: 3px; padding: 10px 13px; border-radius: 10px; background: rgba(10,16,22,.78); border: 1px solid var(--line); font-size: 13px; pointer-events: none; min-width: 210px; }
+.hud:empty { display: none; }
+.hud b { color: var(--oil-2); font-size: 14px; margin-bottom: 2px; }
+.hud span { display: flex; justify-content: space-between; gap: 16px; color: var(--muted); }
+.hud i { font-style: normal; color: var(--text); font-variant-numeric: tabular-nums; }
+.level { position: absolute; left: 0; top: 0; margin: -14px 0 0 -38px; padding: 4px 9px; border-radius: 8px; background: rgba(10,16,22,.85); border: 1px solid var(--oil); font-size: 12.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.level b { color: var(--oil-2); margin-right: 4px; }
