@@ -98,7 +98,7 @@ export function mountFlight(root, sec, next) {
   const vp = $('vp');
 
   const stage = createStage(vp, {cam: [-64, 42.5, -64], tgt: [30, 60, 25], pick: false});
-  if (location.hostname === 'localhost') window.__stage = stage; // для отладки
+  if (location.hostname === 'localhost') { window.__stage = stage; window.__fl = {jump: (f) => jump(f), pause: () => { paused = true; }}; } // для отладки
   const camera = stage.camera;
   camera.fov = 55;
   camera.updateProjectionMatrix();
@@ -124,8 +124,8 @@ export function mountFlight(root, sec, next) {
     {t: 36, p: [120, 22, 230], l: [0, 0, 40]},
     {t: 39.5, p: [70, 2, 300], l: [20, -10, 240]},
     {t: 42.5, p: [45, -7, 275], l: [0, -9, 220]},
-    {t: 46.5, p: [-10, -14, 240], l: [-60, -18, 170]},
-    {t: 50, p: [-30, -17.5, 200], l: [0, -30, 60]},
+    {t: 46.5, p: [-10, -13, 240], l: [-60, -17, 170]},
+    {t: 50, p: [-30, -14.8, 200], l: [0, -30, 60]},
     {t: 53.5, p: [0, -60, 330], l: [0, -110, 0]},
     {t: 57.5, p: [30, -150, 360], l: [0, -195, 0]},
     {t: 61, p: [90, -50, 330], l: [40, -12, 200]},

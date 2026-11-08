@@ -71,7 +71,8 @@ export function createStage(vp, {cam, tgt, names = {}, onPick, pick = true} = {}
   sun.shadow.bias = -0.0003;
   sun.shadow.normalBias = 0.5;
   scene.add(sun, sun.target);
-  scene.add(new THREE.HemisphereLight(0xffd9c0, 0x3b4660, 0.85));
+  const hemi = new THREE.HemisphereLight(0xffd9c0, 0x3b4660, 0.85);
+  scene.add(hemi);
   const clouds = makeClouds(sunDir);
   scene.add(clouds.mesh);
 
@@ -83,7 +84,7 @@ export function createStage(vp, {cam, tgt, names = {}, onPick, pick = true} = {}
   ceiling.position.set(900, 0.05, 0);
   scene.add(ceiling);
   // Среды: над водой — небо и дымка; в воде — бирюзовая мгла; ниже дна — тёмный «музейный» фон разреза.
-  const UW = new THREE.Color(0x0b5468), DEEP = new THREE.Color(0x0a0e13);
+  const UW = new THREE.Color(0x1a7f93), DEEP = new THREE.Color(0x0a0e13);
   let medium = '';
   function setMedium(y) {
     const m = y > 0 ? 'air' : y > SEABED - 0.5 ? 'water' : 'rock';
@@ -91,7 +92,12 @@ export function createStage(vp, {cam, tgt, names = {}, onPick, pick = true} = {}
     medium = m;
     clouds.mesh.visible = m === 'air';
     if (m === 'air') { scene.background = skyRT.texture; scene.fog.color.copy(FOG); scene.fog.near = 900; scene.fog.far = 3600; }
-    if (m === 'water') { scene.background = UW; scene.fog.color.copy(UW); scene.fog.near = 2; scene.fog.far = 140; }
+    if (m === 'water') { scene.background = UW; scene.fog.color.copy(UW); scene.fog.near = 4; scene.fog.far = 175; }
+    // Под водой красный свет поглощается: солнце и небо становятся сине-зелёными.
+    sun.color.set(m === 'water' ? 0xbfeff2 : 0xffb878);
+    sun.intensity = m === 'water' ? 2.2 : 3.6;
+    hemi.color.set(m === 'water' ? 0x9fe6ee : 0xffd9c0);
+    hemi.groundColor.set(m === 'water' ? 0x1d4a52 : 0x3b4660);
     if (m === 'rock') { scene.background = DEEP; scene.fog.color.copy(DEEP); scene.fog.near = 900; scene.fog.far = 5000; }
   }
   const seabed = new THREE.Mesh(

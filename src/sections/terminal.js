@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import {setLink, sagPoints} from '../kit/sea.js';
 import {makeCoast} from './landscape.js';
+import {makeArm} from './loading-arm.js';
 
 export const SHORE_X = 1700;
 export const LAND_Y = 3;
@@ -374,50 +375,6 @@ export function buildTerminal() {
 
   const mountains = makeCoast();
   return {group, arms, tanks, branches, trunk, mountains};
-}
-
-// ======================================================================
-// Морской стендер: стояк, шарнир, внутреннее плечо с противовесом, наружное плечо, соединитель.
-// solve(target) раскладывает плечи так, чтобы соединитель пришёл в target (плоская ОЗК в плоскости x–y).
-function makeArm(base) {
-  const L1 = 13, L2 = 13;
-  const g = new THREE.Group();
-  const P = base.clone().add(V(0, 13, 0));
-  const u = V(-1, 0, 0);
-  g.add(box(3, 1.4, 3, C.green, base.x, base.y + 0.7, base.z, 'arms'));
-  g.add(link(base, P, 0.55, C.green, 'arms'));
-  const pivot = cyl(0.85, 1.8, C.yellow, P.x, P.y, P.z, 'arms');
-  pivot.rotation.x = Math.PI / 2;
-  g.add(pivot);
-  const inner = new THREE.Mesh(linkGeo(0.48), C.green), outer = new THREE.Mesh(linkGeo(0.42), C.green);
-  const cwBeam = new THREE.Mesh(linkGeo(0.3), C.dark), cw = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.4, 2.4), C.yellow);
-  const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.85, 16, 12), C.yellow);
-  const swivel = new THREE.Mesh(new THREE.TorusGeometry(0.6, 0.22, 8, 18), C.yellow);
-  const coupler = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.5, 1.6, 16), C.red);
-  for (const o of [inner, outer, cwBeam, cw, elbow, swivel, coupler]) { o.userData.key = 'arms'; g.add(o); }
-  const E = new THREE.Vector3();
-  const stowed = P.clone().addScaledVector(u, 1.6).add(V(0, -9.5, 0));
-  function solve(T) {
-    const d = T.clone().sub(P);
-    const h = d.dot(u), v = d.y;
-    const D = Math.min(Math.hypot(h, v), L1 + L2 - 0.01);
-    const a = Math.atan2(v, h);
-    const B = Math.acos(THREE.MathUtils.clamp((L1 * L1 + D * D - L2 * L2) / (2 * L1 * D), -1, 1));
-    const th = a + B; // локоть вверх
-    E.copy(P).addScaledVector(u, L1 * Math.cos(th)).add(V(0, L1 * Math.sin(th), 0));
-    E.z = P.z;
-    const tip = T.clone().add(V(0, 1.6, 0));
-    setLink(inner, P, E);
-    setLink(outer, E, tip);
-    const back = P.clone().addScaledVector(E.clone().sub(P).normalize(), -5);
-    setLink(cwBeam, P, back);
-    cw.position.copy(back);
-    elbow.position.copy(E);
-    swivel.position.copy(tip);
-    coupler.position.copy(T).add(V(0, 0.8, 0));
-  }
-  solve(stowed);
-  return {group: g, solve, stowed, P, elbow: E};
 }
 
 // ======================================================================

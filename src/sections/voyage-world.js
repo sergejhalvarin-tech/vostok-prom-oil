@@ -192,7 +192,7 @@ export function buildVoyageWorld(stage) {
     arm.solve(arm.stowed);
     return new THREE.CatmullRomCurve3(pts, false, 'centripetal');
   });
-  const oil = makeBeads(flowCurves, 300, 0.45, OIL, 34);
+  const oil = makeBeads(flowCurves, 360, 0.3, OIL, 34);
   stage.scene.add(oil.mesh);
 
   const wake = makeWake();

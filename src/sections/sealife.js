@@ -4,6 +4,8 @@
 import * as THREE from 'three';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {SEABED} from '../kit/stage.js';
+import {makeReef} from './reef.js';
+import {makeSeal, makeShark} from './creatures.js';
 
 let seed = 21;
 const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -122,101 +124,6 @@ const BELUGA = [[0, 0.05], [0.03, 0.42], [0.08, 0.72], [0.14, 0.86], [0.22, 0.8]
 const BOWHEAD = [[0, 0.05], [0.04, 0.55], [0.12, 0.85], [0.22, 0.97], [0.35, 1], [0.5, 0.95], [0.66, 0.72], [0.8, 0.4], [0.92, 0.18], [1, 0.1]];
 
 // ----------------------------------------------------------------------
-// Донная фауна: инстансы на площадке у кессона.
-function scatter(geo, mat, n, place) {
-  const mesh = new THREE.InstancedMesh(geo, mat, n);
-  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), s = V(1, 1, 1), col = new THREE.Color();
-  for (let i = 0; i < n; i++) {
-    const x = AREA.x0 + rnd() * (AREA.x1 - AREA.x0), z = AREA.z0 + rnd() * (AREA.z1 - AREA.z0);
-    const o = place(i, col);
-    q.setFromEuler(e.set(o.rx || 0, rnd() * 6.28, o.rz || 0));
-    mesh.setMatrixAt(i, m4.compose(V(x, FLOOR + (o.dy || 0), z), q, s.setScalar(o.s || 1)));
-    if (o.c) mesh.setColorAt(i, col);
-  }
-  mesh.receiveShadow = true;
-  return mesh;
-}
-
-function makeSeabed(timeUniform) {
-  const g = new THREE.Group();
-  // Ламинария: ленты, качаются течением (сдвиг вершин в шейдере, сильнее к верхушке).
-  const kelpGeo = new THREE.PlaneGeometry(0.7, 9, 1, 10);
-  kelpGeo.translate(0, 4.5, 0);
-  const kelpMat = new THREE.MeshStandardMaterial({color: 0x6b7a2a, roughness: 0.7, side: THREE.DoubleSide});
-  kelpMat.onBeforeCompile = (sh) => {
-    sh.uniforms.uTime = timeUniform;
-    sh.vertexShader = 'uniform float uTime;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
-      float hk = position.y / 9.0;
-      float ph = instanceMatrix[3].x * 0.21 + instanceMatrix[3].z * 0.17;
-      transformed.x += sin(uTime * 1.1 + ph + hk * 2.5) * hk * hk * 1.6;
-      transformed.z += cos(uTime * 0.8 + ph) * hk * hk * 0.9;`);
-  };
-  g.add(scatter(kelpGeo, kelpMat, 420, (i, c) => {
-    c.setHSL(0.17 + rnd() * 0.08, 0.55, 0.22 + rnd() * 0.12);
-    return {s: 0.6 + rnd() * 0.9, c: true};
-  }));
-  // Актинии: ножка + венчик щупалец.
-  const parts = [new THREE.CylinderGeometry(0.35, 0.45, 0.9, 10).translate(0, 0.45, 0), new THREE.SphereGeometry(0.5, 12, 6, 0, 6.29, 0, 1.2).translate(0, 0.8, 0)];
-  for (let k = 0; k < 14; k++) {
-    const a = (k / 14) * Math.PI * 2;
-    parts.push(new THREE.ConeGeometry(0.07, 0.75, 5).rotateZ(-0.9).rotateY(a).translate(Math.cos(a) * 0.38, 1.1, -Math.sin(a) * 0.38));
-  }
-  const anemoneGeo = mergeGeometries(parts.map((p) => p.toNonIndexed()));
-  const bright = [0xff5fa2, 0xff8a3d, 0xf4f0e6, 0xb46cff, 0xff3b3b, 0xffc44d];
-  g.add(scatter(anemoneGeo, new THREE.MeshStandardMaterial({color: 0xffffff, roughness: 0.45, emissive: 0x220010, emissiveIntensity: 0.3}), 260, (i, c) => {
-    c.set(bright[i % bright.length]);
-    return {s: 0.8 + rnd() * 1.4, c: true};
-  }));
-  // Мягкие кораллы: веточки с шариками полипов.
-  const cor = [];
-  for (let k = 0; k < 7; k++) {
-    const a = rnd() * 6.28, tilt = 0.2 + rnd() * 0.5, h = 1 + rnd() * 1.2;
-    const dir = V(Math.cos(a) * Math.sin(tilt), Math.cos(tilt), Math.sin(a) * Math.sin(tilt));
-    const stem = new THREE.CylinderGeometry(0.06, 0.12, h, 6).translate(0, h / 2, 0);
-    stem.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(V(0, 1, 0), dir));
-    cor.push(stem);
-    for (let b = 0; b < 4; b++) cor.push(new THREE.SphereGeometry(0.16 + rnd() * 0.1, 8, 6).translate(dir.x * h * (0.6 + b * 0.13), dir.y * h * (0.6 + b * 0.13), dir.z * h * (0.6 + b * 0.13)));
-  }
-  g.add(scatter(mergeGeometries(cor.map((p) => p.toNonIndexed())), new THREE.MeshStandardMaterial({color: 0xffffff, roughness: 0.6}), 160, (i, c) => {
-    c.setHSL(0.95 + rnd() * 0.08, 0.75, 0.55 + rnd() * 0.15);
-    return {s: 0.9 + rnd() * 1.2, c: true};
-  }));
-  // Морские звёзды.
-  const star = new THREE.Shape();
-  for (let k = 0; k <= 10; k++) {
-    const a = (k / 10) * Math.PI * 2, r = k % 2 ? 0.22 : 0.65;
-    k ? star.lineTo(Math.cos(a) * r, Math.sin(a) * r) : star.moveTo(r, 0);
-  }
-  const starGeo = new THREE.ExtrudeGeometry(star, {depth: 0.08, bevelEnabled: true, bevelSize: 0.05, bevelThickness: 0.05, bevelSegments: 1}).rotateX(-Math.PI / 2);
-  g.add(scatter(starGeo, new THREE.MeshStandardMaterial({color: 0xffffff, roughness: 0.7}), 220, (i, c) => {
-    c.set([0xff6b1a, 0xe8323a, 0xa64dff, 0xffb02e][i % 4]);
-    return {s: 0.7 + rnd() * 0.8, dy: 0.05, c: true};
-  }));
-  // Морские ежи.
-  const urch = [new THREE.SphereGeometry(0.35, 10, 8)];
-  for (let k = 0; k < 26; k++) {
-    const d = V(rnd() - 0.5, rnd() * 0.8, rnd() - 0.5).normalize();
-    urch.push(new THREE.ConeGeometry(0.03, 0.5, 3).translate(0, 0.45, 0).applyQuaternion(new THREE.Quaternion().setFromUnitVectors(V(0, 1, 0), d)));
-  }
-  g.add(scatter(mergeGeometries(urch.map((p) => p.toNonIndexed())), new THREE.MeshStandardMaterial({color: 0xffffff, roughness: 0.5}), 200, (i, c) => {
-    c.set([0x5b1f6b, 0x2c3a1e, 0x8a2a4a][i % 3]);
-    return {s: 0.8 + rnd() * 0.7, dy: 0.15, c: true};
-  }));
-  // Губки-трубки.
-  const sponge = mergeGeometries([0, 1, 2].map((k) => new THREE.CylinderGeometry(0.25, 0.32, 1.2 + k * 0.5, 10, 1, true).translate((k - 1) * 0.45, 0.6 + k * 0.25, (k % 2) * 0.3).toNonIndexed()));
-  g.add(scatter(sponge, new THREE.MeshStandardMaterial({color: 0xffffff, roughness: 0.8, side: THREE.DoubleSide}), 90, (i, c) => {
-    c.set([0xffd23f, 0xff9a2e, 0xe8e4c9][i % 3]);
-    return {s: 1 + rnd() * 1.2, c: true};
-  }));
-  // Валуны.
-  g.add(scatter(new THREE.DodecahedronGeometry(1, 0), new THREE.MeshStandardMaterial({color: 0xffffff, roughness: 0.95}), 160, (i, c) => {
-    c.setHSL(0.1, 0.08, 0.3 + rnd() * 0.25);
-    return {s: 0.6 + rnd() * 2.6, dy: 0.2, rx: rnd() * 3, rz: rnd() * 3, c: true};
-  }));
-  return g;
-}
-
-// ----------------------------------------------------------------------
 // Световые столбы от поверхности.
 function makeRays() {
   const cv = document.createElement('canvas');
@@ -272,7 +179,7 @@ export function makeSeaLife() {
   const group = new THREE.Group();
   const timeU = {value: 0};
   const schools = makeSchools();
-  const seabed = makeSeabed(timeU);
+  const seabed = makeReef(timeU);
   const rays = makeRays();
   const snow = makeSnow();
   group.add(schools.mesh, seabed, rays, snow.points);
@@ -287,13 +194,17 @@ export function makeSeaLife() {
   const bowhead = makeWhale({len: 16, rad: 2.6, color: 0x23282e, belly: 0xd8dcd8, profile: BOWHEAD});
   group.add(bowhead.group);
 
+  // Нерпы — играют у дна среди ламинарии; полярные акулы медленно кружат в толще.
+  const seals = [0, 1].map((i) => { const s = makeSeal(); s.ph = i * 2.4; group.add(s.group); return s; });
+  const sharks = [0, 1, 2].map((i) => { const s = makeShark(); s.ph = i * 2.1; group.add(s.group); return s; });
+
   const up = V(0, 1, 0), m4 = new THREE.Matrix4();
   const swim = (w, p, ahead, t, amp) => {
     w.group.position.copy(p);
     m4.lookAt(p, ahead, up);
     w.group.quaternion.setFromRotationMatrix(m4);
     w.group.rotateX(Math.sin(t * 1.6) * 0.05);
-    w.tail.rotation.x = Math.sin(t * 1.6 + 0.8) * amp;
+    if (w.tail) w.tail.rotation.x = Math.sin(t * 1.6 + 0.8) * amp;
   };
 
   const api = {
@@ -317,6 +228,18 @@ export function makeSeaLife() {
         const P = (k) => V(-30 + Math.cos(k) * 170, -12 + Math.sin(k * 2) * 1.5, 320 + Math.sin(k) * 110);
         swim(bowhead, P(a), P(b), t * 0.6, 0.3);
       }
+      seals.forEach((sl, i) => {
+        const k = t * 0.22 + sl.ph, k2 = k + 0.04;
+        const P = (q) => V(-40 + Math.cos(q) * 45 + Math.sin(q * 2.3) * 12, -13 + Math.sin(q * 1.7) * 2.5, 250 + Math.sin(q) * 40 + i * 25);
+        swim(sl, P(k), P(k2), t + sl.ph, 0);
+        sl.update(t + sl.ph);
+      });
+      sharks.forEach((sh, i) => {
+        const k = t * 0.05 + sh.ph, k2 = k + 0.02;
+        const P = (q) => V(20 + Math.cos(q) * (110 + i * 25), -10 - i * 2 + Math.sin(q * 2) * 1.5, 300 + Math.sin(q) * (80 + i * 15));
+        swim(sh, P(k), P(k2), t, 0);
+        sh.update(t + sh.ph);
+      });
       rays.children.forEach((r) => { r.rotation.z = 0.25 + Math.sin(t * 0.3 + r.userData.ph) * 0.06; r.material.opacity = 0.22; });
       snow.update(camPos, t);
     },
