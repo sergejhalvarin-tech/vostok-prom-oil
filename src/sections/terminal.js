@@ -62,8 +62,9 @@ export function buildTerminal() {
   const add = (...o) => group.add(...o);
 
   // --- Суша, площадки, дороги ---
-  add(box(2600, 30, 3400, C.grass, SHORE_X + 1300, LAND_Y - 15, 0));
-  const pad = (x0, x1, z0, z1, m, y = LAND_Y + 0.05) => add(box(x1 - x0, 0.1, z1 - z0, m, (x0 + x1) / 2, y, (z0 + z1) / 2));
+  const flat = (o) => { o.userData.noCast = true; return o; };
+  add(flat(box(2600, 30, 3400, C.grass, SHORE_X + 1300, LAND_Y - 15, 0)));
+  const pad = (x0, x1, z0, z1, m, y = LAND_Y + 0.05) => add(flat(box(x1 - x0, 0.1, z1 - z0, m, (x0 + x1) / 2, y, (z0 + z1) / 2)));
   pad(1702, 1740, -1700, 1700, C.gravel);                      // полоса вдоль берега
   pad(1728, 1744, -1700, 1700, C.asphalt, LAND_Y + 0.1);       // береговая дорога
   pad(1822, 2110, -520, 500, C.gravel);                         // площадка резервуарного парка
@@ -178,7 +179,7 @@ export function buildTerminal() {
 
   // --- Морские стендеры ---
   const arms = ARM_Z.map((z) => makeArm(V(ARM_X, DECK_Y, z)));
-  for (const a of arms) jetty.add(a.group);
+  for (const a of arms) { a.group.userData.dynamic = true; jetty.add(a.group); }
   const armsHeader = tube([V(ARM_X + 1.5, DECK_Y + 0.9, -14), V(ARM_X + 1.5, DECK_Y + 0.9, 14)], 0.6, C.yellow, 'arms', 20);
   jetty.add(armsHeader, link(V(ARM_X + 1.5, DECK_Y + 0.9, -2), V(ARM_X + 4, trunkY, -2), 0.55, C.yellow, 'arms'));
 
@@ -199,6 +200,7 @@ export function buildTerminal() {
       t.group.position.set(x, LAND_Y + 0.4, z);
       t.group.rotation.y = rnd() * Math.PI * 2;
       t.group.traverse((o) => (o.userData.key = target ? 'tanks' : 'farm'));
+      if (target && t.roof) t.roof.userData.dynamic = true;
       add(t.group);
       add(link(V(x - 41, LAND_Y + 1.2, z), V(x - TANK_R, LAND_Y + 1.2, z), 0.35, C.steel, 'farm'));
       tanks.push({...t, ci, ri, x, z, target});
@@ -302,7 +304,7 @@ function makeArm(base) {
 
 // ======================================================================
 // Вертикальный стальной резервуар. type: 'floating' — открытый верх с плавающей крышей, 'dome' — стационарная крыша.
-let shellTex = null, brandTex = null;
+let shellTex = null, brandTex = null, SHELL_MAT = null, BRAND_MAT = null;
 function textures() {
   if (shellTex) return;
   const cv = document.createElement('canvas');
@@ -334,7 +336,7 @@ function textures() {
 function makeTank(r, h, type, level, brand) {
   textures();
   const g = new THREE.Group();
-  const shellMat = new THREE.MeshStandardMaterial({color: 0xffffff, map: shellTex, roughness: 0.45, metalness: 0.1});
+  const shellMat = SHELL_MAT ||= new THREE.MeshStandardMaterial({color: 0xffffff, map: shellTex, roughness: 0.45, metalness: 0.1});
   g.add(cyl(r + 1.6, 0.8, C.concrete, 0, 0, 0, undefined, 64));                     // фундаментное кольцо
   const shell = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 96, 1, true), shellMat);
   shell.position.y = h / 2 + 0.4;
@@ -385,7 +387,7 @@ function makeTank(r, h, type, level, brand) {
   if (brand) {
     const decal = new THREE.Mesh(
       new THREE.CylinderGeometry(r + 0.06, r + 0.06, 7, 48, 1, true, Math.PI * 1.5 - 0.62, 1.24),
-      new THREE.MeshStandardMaterial({map: brandTex, transparent: true, roughness: 0.5}),
+      BRAND_MAT ||= new THREE.MeshStandardMaterial({map: brandTex, transparent: true, roughness: 0.5}),
     );
     decal.position.y = h * 0.55;
     g.add(decal);

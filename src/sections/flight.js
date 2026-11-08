@@ -94,7 +94,8 @@ export function mountFlight(root, sec, next) {
   const $ = (id) => root.querySelector('#' + id);
   const vp = $('vp');
 
-  const stage = createStage(vp, {cam: [-64, 42.5, -64], tgt: [30, 60, 25]});
+  const stage = createStage(vp, {cam: [-64, 42.5, -64], tgt: [30, 60, 25], pick: false});
+  if (location.hostname === 'localhost') window.__stage = stage; // для отладки
   const camera = stage.camera;
   camera.fov = 55;
   camera.updateProjectionMatrix();

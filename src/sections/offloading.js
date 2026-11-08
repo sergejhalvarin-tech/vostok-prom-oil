@@ -2,6 +2,7 @@
 // устройства прямой отгрузки → шланг налива к носовому приёмному устройству танкера; швартовный канат.
 import * as THREE from 'three';
 import {TANKER_SCALE} from '../kit/models.js';
+import {mergeStatic} from '../kit/merge.js';
 
 // Стрела устройства отгрузки (узел Kran_B_2 модели платформы): опора и вершина, мировые координаты.
 const BOOM_BASE = new THREE.Vector3(43.5, 33, -51);
@@ -85,6 +86,7 @@ export function makeOffloading(tanker) {
   add(station, new THREE.BoxGeometry(6, 3.2, 4), mat(0xf4f4f0), 'tanker', [0, 1.6, 0]);
   add(station, new THREE.BoxGeometry(6.2, 0.5, 4.2), red, 'tanker', [0, 3.3, 0]);
   add(station, new THREE.CylinderGeometry(0.75, 0.75, 1.8, 20), yellow, 'hose', [0, 4.4, -1.2]); // муфта аварийного разъединения
+  station.children[2].userData.dynamic = true;
   station.updateMatrixWorld(true);
   const bowIn = station.localToWorld(new THREE.Vector3(0, 5.3, -1.2));
 
@@ -98,6 +100,7 @@ export function makeOffloading(tanker) {
   }
   const hose = new THREE.CatmullRomCurve3(hosePts);
   const hoseMesh = add(group, new THREE.TubeGeometry(hose, 220, 0.5, 14), mat(0x15171a, {roughness: 0.7, metalness: 0}), 'hose');
+  hoseMesh.userData.dynamic = true;
   const collars = [];
   const L = hose.getLength();
   for (let d = 4; d < L - 3; d += 5.5) { // яркие поплавковые манжеты
@@ -105,6 +108,7 @@ export function makeOffloading(tanker) {
     const c = add(group, new THREE.CylinderGeometry(0.82, 0.82, 1.2, 18), mat(0xff3d1f, {roughness: 0.5, metalness: 0}), 'hose');
     c.position.copy(hose.getPointAt(k));
     c.quaternion.setFromUnitVectors(UP, hose.getTangentAt(k));
+    c.userData.dynamic = true;
     collars.push({mesh: c, k});
   }
 
@@ -121,6 +125,7 @@ export function makeOffloading(tanker) {
   }
   const hawserMesh = add(group, new THREE.TubeGeometry(new THREE.CatmullRomCurve3(hawPts), 80, 0.28, 8),
     mat(0xfff2b0, {roughness: 0.9, metalness: 0}), 'hawser');
+  hawserMesh.userData.dynamic = true;
 
   // Путь нефти для анимации: насосы → стрела → шланг → танкер.
   const flowCurve = new THREE.CatmullRomCurve3([pumpOut, ...pipeCurve.getSpacedPoints(30), ...hosePts]);
@@ -136,5 +141,6 @@ export function makeOffloading(tanker) {
     station.children[2].visible = kh < 0.98;
   };
 
+  mergeStatic(group);
   return {group, station, flowCurve, disconnect};
 }

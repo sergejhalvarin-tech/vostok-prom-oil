@@ -7,6 +7,7 @@ import {loadPlatform, loadTanker, TANKER_AT_PLATFORM} from '../kit/models.js';
 import {makeOffloading} from './offloading.js';
 import {buildTerminal, makeMooring, BERTH, ARM_Z} from './terminal.js';
 import {makeTug} from './tug.js';
+import {mergeStatic} from '../kit/merge.js';
 
 // Шкала времени рейса, с.
 export const T = {disc: [0, 4], back: [4, 10], turn: [10, 15], sea: [15, 52], push: [52, 57], moor: [57, 63], arms: [63, 70], unload: [70, 106]};
@@ -82,8 +83,12 @@ function makeWake() {
   const points = new THREE.Points(geo, new THREE.ShaderMaterial({
     transparent: true, depthWrite: false,
     vertexShader: /* glsl */ `attribute float age; varying float vA;
-      void main() { vA = age; vec4 mv = modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = (14.0 + age * 9.0) * (300.0 / -mv.z); gl_Position = projectionMatrix * mv; }`,
+      void main() { vA = age;
+        // Погасшие частицы убираем за экран, размер ограничиваем: иначе вблизи они
+        // превращаются в огромные прозрачные квадраты и съедают всю скорость отрисовки.
+        if (age > 9.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); gl_PointSize = 0.0; return; }
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = min((14.0 + age * 9.0) * (300.0 / -mv.z), 72.0); gl_Position = projectionMatrix * mv; }`,
     fragmentShader: /* glsl */ `varying float vA;
       void main() { float d = length(gl_PointCoord - 0.5); if (d > 0.5) discard;
         gl_FragColor = vec4(vec3(0.95, 0.98, 1.0), (1.0 - smoothstep(0.2, 0.5, d)) * max(0.0, 0.55 - vA * 0.06)); }`,
@@ -153,6 +158,7 @@ export function buildVoyageWorld(stage) {
 
   // Терминал.
   const term = buildTerminal();
+  mergeStatic(term.group);
   stage.scene.add(term.group);
   stage.registerTree(term.group);
 

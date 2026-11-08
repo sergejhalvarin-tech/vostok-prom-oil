@@ -1,24 +1,25 @@
-// 3D-сцена раздела: рендер с пост-обработкой, полярное небо, море, свет, камера,
+// 3D-сцена раздела: лёгкий прямой рендер (MSAA, нейтральная цветопередача, адаптивное разрешение),
+// полярное небо, море, свет, камера,
 // подсветка смысловых групп, наведение/клик, HTML-подписи, перелёты и слежение камеры.
 // Система координат: уровень моря y = 0, метры.
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {Sky} from 'three/addons/objects/Sky.js';
-import {EffectComposer} from 'three/addons/postprocessing/EffectComposer.js';
-import {RenderPass} from 'three/addons/postprocessing/RenderPass.js';
-import {GTAOPass} from 'three/addons/postprocessing/GTAOPass.js';
-import {OutputPass} from 'three/addons/postprocessing/OutputPass.js';
-import {ShaderPass} from 'three/addons/postprocessing/ShaderPass.js';
-import {makeWater, GRADE} from './sea.js';
+import {makeWater} from './sea.js';
 
 export const SEABED = -20;
 const ORANGE = new THREE.Color(1, 0.5, 0.08);
 
-export function createStage(vp, {cam, tgt, names = {}, onPick} = {}) {
-  const renderer = new THREE.WebGLRenderer({antialias: true, powerPreference: 'high-performance'});
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.6;
+export function createStage(vp, {cam, tgt, names = {}, onPick, pick = true} = {}) {
+  const aa = new URLSearchParams(location.search).get('aa') !== '0';
+  const renderer = new THREE.WebGLRenderer({antialias: aa, powerPreference: 'high-performance', stencil: false});
+  // Разрешение подстраивается под скорость кадра: от 0,75 до maxPR.
+  const maxPR = Math.min(devicePixelRatio, 1.75);
+  let pr = Math.min(maxPR, 1.25);
+  renderer.setPixelRatio(pr);
+  // Нейтральная цветопередача не выбеливает насыщенные цвета, в отличие от ACES.
+  renderer.toneMapping = THREE.NeutralToneMapping;
+  renderer.toneMappingExposure = 0.92;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
   vp.prepend(renderer.domElement);
@@ -43,7 +44,6 @@ export function createStage(vp, {cam, tgt, names = {}, onPick} = {}) {
   su.mieDirectionalG.value = 0.86;
   const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 19), THREE.MathUtils.degToRad(215));
   su.sunPosition.value.copy(sunDir);
-  scene.add(sky);
 
   const pmrem = new THREE.PMREMGenerator(renderer);
   const envScene = new THREE.Scene();
@@ -53,6 +53,11 @@ export function createStage(vp, {cam, tgt, names = {}, onPick} = {}) {
   envScene.add(skyEnv);
   const envRT = pmrem.fromScene(envScene, 0, 1, 20000);
   scene.environment = envRT.texture;
+  const skyRT = new THREE.WebGLCubeRenderTarget(1024, {type: THREE.HalfFloatType});
+  const skyScene = new THREE.Scene();
+  skyScene.add(sky);
+  new THREE.CubeCamera(1, 20000, skyRT).update(renderer, skyScene);
+  scene.background = skyRT.texture;
 
   const FOG = new THREE.Color(0xa9cbe6);
   scene.fog = new THREE.Fog(FOG, 900, 3600);
@@ -60,32 +65,20 @@ export function createStage(vp, {cam, tgt, names = {}, onPick} = {}) {
   // Солнце с тенью следует за точкой, на которую смотрит камера.
   const sun = new THREE.DirectionalLight(0xfff0d8, 3.4);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(4096, 4096);
-  Object.assign(sun.shadow.camera, {left: -320, right: 320, top: 320, bottom: -320, near: 10, far: 1600});
+  sun.shadow.mapSize.set(1536, 1536);
+  Object.assign(sun.shadow.camera, {left: -260, right: 260, top: 260, bottom: -260, near: 10, far: 1600});
   sun.shadow.bias = -0.0003;
   sun.shadow.normalBias = 0.5;
   scene.add(sun, sun.target);
   scene.add(new THREE.HemisphereLight(0xd8ebff, 0x3a4a58, 0.75));
 
-  // Пост-обработка: MSAA-буфер, затенение в углах (GTAO), вывод, цветокоррекция.
-  const rt = new THREE.WebGLRenderTarget(1, 1, {type: THREE.HalfFloatType, samples: 4});
-  const composer = new EffectComposer(renderer, rt);
-  composer.addPass(new RenderPass(scene, camera));
-  const gtao = new GTAOPass(scene, camera, 1, 1);
-  gtao.updateGtaoMaterial({radius: 4, distanceExponent: 1.5, thickness: 2, scale: 1.2, samples: 16});
-  gtao.blendIntensity = 0.85;
-  composer.addPass(gtao);
-  composer.addPass(new OutputPass());
-  composer.addPass(new ShaderPass(GRADE));
-
   const water = makeWater(sunDir, FOG);
   scene.add(water.mesh);
   const seabed = new THREE.Mesh(
     new THREE.PlaneGeometry(9000, 9000).rotateX(-Math.PI / 2),
-    new THREE.MeshStandardMaterial({color: 0x6f6650, roughness: 1}),
+    new THREE.MeshBasicMaterial({color: 0x4a4a3a}),
   );
   seabed.position.set(900, SEABED - 0.2, 0);
-  seabed.receiveShadow = true;
   scene.add(seabed);
 
   // ---------- смысловые группы ----------
@@ -93,7 +86,8 @@ export function createStage(vp, {cam, tgt, names = {}, onPick} = {}) {
   const highlightable = [];
   const maxAniso = renderer.capabilities.getMaxAnisotropy();
   function register(o, key, {shadow = true} = {}) {
-    o.castShadow = o.receiveShadow = shadow;
+    o.castShadow = shadow && o.userData.noCast !== true;
+    o.receiveShadow = true;
     o.material = o.material.clone();
     o.material.userData.e0 = o.material.emissive?.clone();
     for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap']) if (o.material[k]) o.material[k].anisotropy = maxAniso;
@@ -128,16 +122,20 @@ export function createStage(vp, {cam, tgt, names = {}, onPick} = {}) {
   const ray = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
   let hoverKey = null, downAt = null;
-  const pick = (e) => {
+  const pickAt = (e) => {
     const r = renderer.domElement.getBoundingClientRect();
     ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
     return ray.intersectObjects(highlightable, false).find((h) => h.object.visible)?.object.userData.key || null;
   };
   const el = renderer.domElement;
-  el.addEventListener('pointermove', (e) => {
+  let lastPick = 0;
+  if (pick) el.addEventListener('pointermove', (e) => {
     if (e.buttons) return;
-    hoverKey = pick(e);
+    const now = performance.now();
+    if (now - lastPick < 120) return;
+    lastPick = now;
+    hoverKey = pickAt(e);
     el.style.cursor = hoverKey ? 'pointer' : '';
     if (hoverKey && names[hoverKey]) {
       const r = vp.getBoundingClientRect();
@@ -148,8 +146,8 @@ export function createStage(vp, {cam, tgt, names = {}, onPick} = {}) {
   });
   el.addEventListener('pointerdown', (e) => (downAt = [e.clientX, e.clientY]));
   el.addEventListener('pointerup', (e) => {
-    if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 5) return;
-    const key = pick(e);
+    if (!onPick || !downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 5) return;
+    const key = pickAt(e);
     if (key) onPick?.(key);
   });
   el.addEventListener('pointerleave', () => { tip.classList.remove('on'); hoverKey = null; });
@@ -177,8 +175,6 @@ export function createStage(vp, {cam, tgt, names = {}, onPick} = {}) {
     const w = vp.clientWidth, h = vp.clientHeight;
     if (!w || !h) return;
     renderer.setSize(w, h, false);
-    composer.setPixelRatio(renderer.getPixelRatio());
-    composer.setSize(w, h);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
   };
@@ -246,8 +242,22 @@ export function createStage(vp, {cam, tgt, names = {}, onPick} = {}) {
       l.el.classList.toggle('on', l.active());
     }
 
-    composer.render();
+    renderer.shadowMap.needsUpdate = (frameNo++ & 1) === 0;
+    renderer.render(scene, camera);
+
+    // Адаптивное разрешение: держим ~60 кадров/с.
+    if (dt > 0) {
+      ftAvg += (dt * 1000 - ftAvg) * 0.05;
+      if (++ftN > 90) {
+        const next = ftAvg > 22 ? pr - 0.1 : ftAvg < 15 ? pr + 0.05 : pr;
+        const c = Math.min(maxPR, Math.max(0.6, next));
+        if (Math.abs(c - pr) > 0.01) { pr = c; renderer.setPixelRatio(pr); resize(); }
+        ftN = 0;
+      }
+    }
   }
+  let ftAvg = 16, ftN = 0, frameNo = 0;
+  renderer.shadowMap.autoUpdate = false;
   frame();
 
   function dispose() {
@@ -264,9 +274,7 @@ export function createStage(vp, {cam, tgt, names = {}, onPick} = {}) {
       }
     });
     envRT.dispose();
-    rt.dispose();
-    gtao.dispose();
-    composer.dispose();
+    skyRT.dispose();
     pmrem.dispose();
     renderer.dispose();
   }

@@ -1,5 +1,6 @@
 // Общие элементы морских сцен: вода, лёд, частицы потока, цветокоррекция.
 import * as THREE from 'three';
+import {mergeStatic} from './merge.js';
 
 // Море: волны в вершинном шейдере, френель, блик солнца, туман по дальности.
 export function makeWater(sunDir, fogColor) {
@@ -50,7 +51,7 @@ export function makeWater(sunDir, fogColor) {
       }`,
   });
   // Сетка гуще в центре не нужна: волны мелкие, 7×7 км хватает на обе сцены.
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(9000, 9000, 360, 360).rotateX(-Math.PI / 2), mat);
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(9000, 9000, 220, 220).rotateX(-Math.PI / 2), mat);
   mesh.position.x = 900;
   mesh.renderOrder = 2;
   return {
@@ -87,7 +88,7 @@ export function makeIce(exclude = () => false, count = 90) {
     m.receiveShadow = true;
     g.add(m);
   }
-  return g;
+  return mergeStatic(g);
 }
 
 // Частицы, бегущие вдоль кривых (поток нефти/воды). reverse — от конца к началу.
