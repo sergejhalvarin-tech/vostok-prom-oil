@@ -186,7 +186,7 @@ const RES_TOP = (x) => -200 + 36 * C(x);
 const RES_BOT = (x) => -236 + 36 * C(x);
 const OWC = -188; // водонефтяной контакт
 
-function makeSection() {
+export function makeSection() {
   const group = new THREE.Group();
 
   // Слои рисуем на канвасе: x → ширина, y → высота.

@@ -160,6 +160,13 @@ export function createStage(vp, {cam, tgt, names = {}, onPick} = {}) {
   function flyTo(p, t, ms = 1600) {
     fly = {p0: camera.position.clone(), t0: controls.target.clone(), p1: new THREE.Vector3(...p), t1: new THREE.Vector3(...t), start: performance.now(), ms};
   }
+  // Ручная камера (облёт): orbit-управление выключено, камеру ставит вызывающий код,
+  // focus() — точка, вокруг которой строится тень солнца.
+  let manual = null;
+  function setManual(focus) {
+    manual = focus;
+    controls.enabled = !focus;
+  }
   function setFollow(obj) {
     follow = obj;
     if (obj) obj.getWorldPosition(followPrev);
@@ -194,7 +201,7 @@ export function createStage(vp, {cam, tgt, names = {}, onPick} = {}) {
 
     for (const fn of hooks) fn(dt, t);
 
-    if (follow) {
+    if (!manual && follow) {
       follow.getWorldPosition(tmp);
       d.subVectors(tmp, followPrev);
       followPrev.copy(tmp);
@@ -202,17 +209,18 @@ export function createStage(vp, {cam, tgt, names = {}, onPick} = {}) {
       controls.target.add(d);
       if (fly) { fly.p0.add(d); fly.p1.add(d); fly.t0.add(d); fly.t1.add(d); }
     }
-    if (fly) {
+    if (!manual && fly) {
       const k = Math.min(1, (performance.now() - fly.start) / fly.ms);
       const e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
       camera.position.lerpVectors(fly.p0, fly.p1, e);
       controls.target.lerpVectors(fly.t0, fly.t1, e);
       if (k >= 1) fly = null;
     }
-    controls.update();
+    if (!manual) controls.update();
 
-    sun.target.position.copy(controls.target);
-    sun.position.copy(controls.target).addScaledVector(sunDir, 700);
+    const focusPt = manual ? manual() : controls.target;
+    sun.target.position.copy(focusPt);
+    sun.position.copy(focusPt).addScaledVector(sunDir, 700);
     water.update(t);
 
     // Подсветка: выбранная группа пульсирует, связанные — слабее, под курсором — ровно.
@@ -265,6 +273,6 @@ export function createStage(vp, {cam, tgt, names = {}, onPick} = {}) {
 
   return {
     renderer, scene, camera, controls, sun, sunDir, water, seabed,
-    register, registerTree, setFocus, addLabel, flyTo, setFollow, onFrame, dispose,
+    register, registerTree, setFocus, addLabel, flyTo, setFollow, setManual, onFrame, dispose,
   };
 }

@@ -45,6 +45,8 @@ export function mountStory(root, cfg) {
     },
   });
 
+  if (location.hostname === 'localhost') window.__stage = stage; // для отладки ракурсов
+
   for (const h of cfg.hotspots || []) {
     stage.addLabel({
       html: `<i>${h.step + 1}</i><span>${h.text || cfg.names[h.key]}</span>`,

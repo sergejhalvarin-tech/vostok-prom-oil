@@ -2,9 +2,11 @@
 import {mountShelf} from './sections/shelf.js';
 import {mountStub} from './sections/stub.js';
 import {mountTransport} from './sections/transport.js';
+import {mountFlight} from './sections/flight.js';
 
 // Путь нефти — сквозная история сайта. Готов первый этап, остальные пока заглушки.
 const SECTIONS = [
+  {id: 'flight', title: 'Облёт', mount: mountFlight},
   {id: 'shelf', n: 1, title: 'Добыча на шельфе', mount: mountShelf},
   {id: 'transport', n: 2, title: 'Транспорт', mount: mountTransport},
   {id: 'refinery', n: 3, title: 'Переработка', mount: mountStub,
@@ -30,7 +32,7 @@ menu.innerHTML = SECTIONS.map((s) =>
 let current = null; // {id, dispose}
 
 function route() {
-  const id = location.hash.slice(1) || 'shelf';
+  const id = location.hash.slice(1) || 'flight';
   const s = SECTIONS.find((x) => x.id === id) || SECTIONS[0];
   if (current?.id === s.id) return;
   current?.dispose?.();

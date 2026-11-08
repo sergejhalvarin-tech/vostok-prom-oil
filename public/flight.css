@@ -1,0 +1,108 @@
+/* ======================================================================
+   Облёт (главный экран) — полноэкранная сцена, табло кабины, главы, титры
+   ====================================================================== */
+.immersive .topbar { background: linear-gradient(rgba(5,9,13,.72), rgba(5,9,13,0)); border-bottom-color: transparent; backdrop-filter: none; }
+.immersive main { padding-top: 0; }
+.flight { position: relative; height: 100vh; overflow: hidden; background: #05090d; }
+.fl-vp { position: absolute; inset: 0; }
+.fl-vp canvas { cursor: grab; }
+.fl-vp canvas:active { cursor: grabbing; }
+
+/* Остекление кабины: мягкая виньетка и тёмные стойки по краям. */
+.fl-frame { position: absolute; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(120% 95% at 50% 45%, transparent 62%, rgba(3,6,9,.55) 100%),
+    linear-gradient(100deg, rgba(3,6,9,.85) 0, rgba(3,6,9,0) 3.5%),
+    linear-gradient(-100deg, rgba(3,6,9,.85) 0, rgba(3,6,9,0) 3.5%); }
+.fl-under { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .3s;
+  background: radial-gradient(ellipse at 50% 30%, rgba(30,120,160,.18), rgba(4,40,60,.55)); mix-blend-mode: multiply; }
+
+/* Табло. */
+.fl-hud { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 1.2s .4s; font-variant-numeric: tabular-nums; }
+.flying .fl-hud { opacity: 1; }
+.fl-tape { position: absolute; top: 74px; left: 50%; width: 420px; height: 40px; margin-left: -210px; overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent); mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent); }
+.fl-tape-in { position: absolute; left: 210px; top: 0; height: 100%; }
+.fl-tape-in span { position: absolute; top: 0; width: 1px; height: 7px; background: rgba(255,255,255,.5); color: transparent; font-size: 0; }
+.fl-tape-in span.big { height: 11px; background: rgba(255,255,255,.9); }
+.fl-tape-in span.big { font-size: 11px; color: #fff; line-height: 1; text-indent: -4px; padding-top: 14px; box-sizing: content-box; height: 11px; background-clip: content-box; }
+.fl-tape-mark { position: absolute; left: 50%; top: 0; width: 2px; height: 16px; margin-left: -1px; background: var(--oil); }
+.fl-tape b { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); font-size: 12px; font-weight: 600; color: var(--oil-2); letter-spacing: .1em; }
+.fl-gauge { position: absolute; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 0; width: 92px;
+  border-top: 1px solid rgba(255,255,255,.35); border-bottom: 1px solid rgba(255,255,255,.35); color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,.6); }
+.fl-gauge small { font-size: 10px; letter-spacing: .18em; color: rgba(255,255,255,.65); }
+.fl-gauge b { font-size: 30px; font-weight: 300; letter-spacing: -.02em; }
+.fl-left { left: 5%; }
+.fl-right { right: 5%; }
+.fl-cap { position: absolute; left: 6%; bottom: 130px; max-width: 520px; color: #fff; text-shadow: 0 2px 18px rgba(0,0,0,.55); opacity: 0; transform: translateY(14px); }
+.fl-cap.in { animation: capIn 1.1s cubic-bezier(.2,.7,.2,1) forwards; }
+@keyframes capIn { to { opacity: 1; transform: none; } }
+.fl-kick { font-size: 12px; letter-spacing: .22em; text-transform: uppercase; color: var(--oil-2); font-weight: 600; }
+.fl-cap h2 { margin: 10px 0 10px; font-size: clamp(28px, 3.4vw, 48px); line-height: 1.05; font-weight: 700; letter-spacing: -.02em; }
+.fl-cap p { margin: 0; font-size: 16px; line-height: 1.55; color: rgba(255,255,255,.86); max-width: 460px; }
+
+/* Нижняя панель: главы и управление. */
+.fl-bar { position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 6% 22px; display: flex; flex-direction: column; gap: 12px;
+  background: linear-gradient(transparent, rgba(3,6,9,.75)); opacity: 0; transition: opacity 1s .6s; pointer-events: none; }
+.flying .fl-bar { opacity: 1; pointer-events: auto; }
+.fl-chapters { display: flex; gap: 6px; }
+.fl-ch { border: 0; background: none; padding: 0; text-align: left; color: rgba(255,255,255,.55); font-size: 11.5px; letter-spacing: .06em; min-width: 0; }
+.fl-ch i { display: block; height: 3px; border-radius: 2px; background: rgba(255,255,255,.22); overflow: hidden; margin-bottom: 7px; }
+.fl-ch em { display: block; height: 100%; width: 0; background: var(--oil); }
+.fl-ch span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fl-ch:hover, .fl-ch.on { color: #fff; }
+.fl-ctl { display: flex; gap: 8px; flex-wrap: wrap; }
+.fl-btn { padding: 8px 14px; border-radius: 999px; border: 1px solid rgba(255,255,255,.25); background: rgba(8,12,16,.45); backdrop-filter: blur(8px);
+  color: #fff; font-size: 12px; letter-spacing: .08em; text-decoration: none; }
+.fl-btn:hover { border-color: rgba(255,255,255,.6); }
+.fl-btn.on { border-color: var(--oil); color: var(--oil-2); }
+#bSkip { margin-left: auto; }
+
+/* Подписи объектов в полёте. */
+.ftag { position: absolute; left: 0; top: 0; pointer-events: none; padding-left: 16px; color: #fff; font-size: 12.5px; letter-spacing: .04em; white-space: nowrap;
+  text-shadow: 0 1px 8px rgba(0,0,0,.7); margin-top: -8px; }
+.ftag::before { content: ""; position: absolute; left: 0; top: 4px; width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--oil-2); box-shadow: 0 0 0 4px rgba(240,160,58,.18); }
+
+/* Заставка. */
+.fl-intro { position: absolute; inset: 0; display: flex; align-items: center; padding: 0 7%;
+  background: linear-gradient(90deg, rgba(4,8,12,.86) 0%, rgba(4,8,12,.55) 45%, rgba(4,8,12,0) 75%); transition: opacity 1.4s, visibility 1.4s; }
+.fl-intro.off { opacity: 0; visibility: hidden; }
+.fl-intro-in { max-width: 560px; color: #fff; animation: capIn 1.4s .2s cubic-bezier(.2,.7,.2,1) both; opacity: 0; transform: translateY(14px); }
+.fl-brand { display: flex; align-items: center; gap: 10px; font-size: 13px; letter-spacing: .26em; font-weight: 600; }
+.fl-brand b { color: var(--oil); font-weight: 800; }
+.fl-intro h1 { margin: 26px 0 18px; font-size: clamp(56px, 8vw, 112px); line-height: .92; letter-spacing: -.045em; font-weight: 800;
+  background: linear-gradient(180deg, #fff 30%, #c8d6e2); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.fl-intro p { font-size: 18px; line-height: 1.6; color: rgba(255,255,255,.82); margin: 0 0 32px; max-width: 470px; }
+.fl-start { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+.fl-go { display: inline-flex; align-items: center; gap: 10px; padding: 17px 30px; border-radius: 999px; border: 0; background: var(--oil); color: #1a1006;
+  font-size: 15px; font-weight: 700; letter-spacing: .04em; text-decoration: none; box-shadow: 0 10px 40px rgba(240,160,58,.35); transition: transform .2s, box-shadow .2s; }
+.fl-go:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 14px 50px rgba(240,160,58,.5); }
+.fl-go:disabled { background: rgba(255,255,255,.12); color: rgba(255,255,255,.75); box-shadow: none; cursor: progress; }
+.fl-snd { display: flex; align-items: center; gap: 8px; font-size: 14px; color: rgba(255,255,255,.8); cursor: pointer; }
+.fl-snd input { accent-color: var(--oil); width: 16px; height: 16px; }
+.fl-alt { display: inline-block; margin-top: 28px; color: rgba(255,255,255,.7); font-size: 14px; text-decoration: none; border-bottom: 1px solid rgba(255,255,255,.3); padding-bottom: 2px; }
+.fl-alt:hover { color: #fff; }
+.fl-hint { position: absolute; bottom: 26px; left: 7%; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,255,255,.45); }
+
+/* Финал. */
+.ended .fl-hud, .ended .fl-bar { opacity: 0 !important; pointer-events: none; transition: opacity .6s; }
+.fl-end { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 0 6%;
+  background: radial-gradient(ellipse at center, rgba(4,8,12,.55), rgba(4,8,12,.88)); opacity: 0; visibility: hidden; transition: opacity 1.6s, visibility 1.6s; }
+.fl-end.on { opacity: 1; visibility: visible; }
+.fl-end-in { max-width: 760px; color: #fff; }
+.fl-end h2 { margin: 16px 0 16px; font-size: clamp(32px, 4.4vw, 60px); line-height: 1.04; letter-spacing: -.03em; font-weight: 800; }
+.fl-end p { font-size: 17px; line-height: 1.6; color: rgba(255,255,255,.8); margin: 0 auto 34px; max-width: 600px; }
+.fl-end-btns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.fl-btn2 { padding: 16px 24px; border-radius: 999px; border: 1px solid rgba(255,255,255,.3); background: rgba(255,255,255,.06); color: #fff; font-size: 14px; text-decoration: none; }
+.fl-btn2:hover { border-color: #fff; }
+
+@media (max-width: 900px) {
+  .fl-gauge { display: none; }
+  .fl-tape { top: 64px; width: 280px; margin-left: -140px; }
+  .fl-tape-in { left: 140px; }
+  .fl-cap { bottom: 150px; left: 5%; right: 5%; }
+  .fl-cap p { font-size: 14px; }
+  .fl-ch span { font-size: 0; }
+  .fl-intro { background: linear-gradient(0deg, rgba(4,8,12,.9) 20%, rgba(4,8,12,.3)); align-items: flex-end; padding-bottom: 80px; }
+  .fl-intro p { font-size: 15px; }
+}

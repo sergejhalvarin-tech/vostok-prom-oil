@@ -418,34 +418,3 @@ export function makeMooring(tanker) {
   set(0);
   return {group, set};
 }
-
-// ======================================================================
-// Буксир: корпус, рубка, труба, кранцы. Нос в −z.
-export function makeTug() {
-  const g = new THREE.Group();
-  const s = new THREE.Shape();
-  s.moveTo(-5.5, 14); s.lineTo(5.5, 14); s.lineTo(5.5, -6);
-  s.quadraticCurveTo(5, -13, 0, -16); s.quadraticCurveTo(-5, -13, -5.5, -6); s.closePath();
-  const hull = (d, m, y) => {
-    const o = new THREE.Mesh(new THREE.ExtrudeGeometry(s, {depth: d, bevelEnabled: false}).rotateX(Math.PI / 2), m);
-    o.position.y = y;
-    o.userData.key = 'tugs';
-    g.add(o);
-  };
-  hull(3, C.dark, 0);
-  hull(3.2, C.red, 3.2);
-  const deck = new THREE.Mesh(new THREE.ShapeGeometry(s).rotateX(Math.PI / 2), mat(0x4c5a4a));
-  deck.position.y = 3.25;
-  deck.rotation.x = Math.PI;
-  deck.userData.key = 'tugs';
-  g.add(deck);
-  g.add(box(8, 3, 9, C.white, 0, 4.7, -3, 'tugs'), box(7, 2.6, 6, C.white, 0, 7.5, -4, 'tugs'), box(7.2, 1, 6.2, C.glass, 0, 8, -4, 'tugs'));
-  g.add(cyl(0.9, 4, C.dark, 0, 8, 3, 'tugs', 12), cyl(0.95, 0.9, C.red, 0, 9, 3, 'tugs', 12));
-  const fender = new THREE.Mesh(new THREE.TorusGeometry(5.6, 0.7, 8, 30, Math.PI), C.dark);
-  fender.rotation.x = Math.PI / 2;
-  fender.position.set(0, 3.3, -9.5);
-  fender.rotation.z = Math.PI;
-  fender.userData.key = 'tugs';
-  g.add(fender);
-  return g;
-}
