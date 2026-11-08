@@ -4,3 +4,4 @@ models/source/
 models/tmp/
 public/main.js
 public/main.js.map
+tools/__pycache__/

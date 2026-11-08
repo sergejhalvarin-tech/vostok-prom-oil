@@ -6,7 +6,7 @@ import {createStage} from '../kit/stage.js';
 import {buildVoyageWorld} from './voyage-world.js';
 import {makeSection} from './geology.js';
 import {makeSeaLife} from './sealife.js';
-import {makeRotorSound} from './rotor-sound.js';
+import {makeNarration} from './narration.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const clamp = THREE.MathUtils.clamp;
@@ -61,7 +61,7 @@ export function mountFlight(root, sec, next) {
           <div class="fl-chapters" id="chapters"></div>
           <div class="fl-ctl">
             <button class="fl-btn" id="bPause" title="Пауза">❚❚</button>
-            <button class="fl-btn" id="bSound" title="Звук">ЗВУК ВЫКЛ</button>
+            <button class="fl-btn" id="bSound" title="Озвучка диктором">ГОЛОС ВЫКЛ</button>
             <a class="fl-btn" id="bMore" href="#shelf">Подробнее об этапе</a>
             <button class="fl-btn" id="bSkip">Пропустить облёт →</button>
           </div>
@@ -73,7 +73,7 @@ export function mountFlight(root, sec, next) {
             <p>Облёт с борта вертолёта: от арктической платформы на шельфе до резервуаров берегового терминала. Около двух с половиной минут.</p>
             <div class="fl-start">
               <button class="fl-go" id="bGo" disabled><span id="goText">Загрузка 0%</span></button>
-              <label class="fl-snd"><input type="checkbox" id="cSound"> со звуком</label>
+              <label class="fl-snd"><input type="checkbox" id="cSound" checked> с озвучкой диктора</label>
             </div>
             <a class="fl-alt" href="#shelf">Смотреть по разделам →</a>
           </div>
@@ -126,9 +126,9 @@ export function mountFlight(root, sec, next) {
     {t: 42.5, p: [45, -7, 275], l: [0, -9, 220]},
     {t: 46.5, p: [-10, -13, 240], l: [-60, -17, 170]},
     {t: 50, p: [-30, -14.8, 200], l: [0, -30, 60]},
-    {t: 53.5, p: [0, -60, 330], l: [0, -110, 0]},
-    {t: 57.5, p: [30, -150, 360], l: [0, -195, 0]},
-    {t: 61, p: [90, -50, 330], l: [40, -12, 200]},
+    {t: 53.5, p: [0, -60, 470], l: [0, -125, -40]},
+    {t: 57.5, p: [110, -150, 500], l: [0, -190, -60]},
+    {t: 61, p: [90, -45, 470], l: [40, -12, 240]},
     {t: 63.5, p: [110, -8, 280], l: [60, -6, 200]},
     {t: 66, p: [190, 35, 160], l: [150, 15, -150]},
     {t: 69.5, p: [110, 45, -90], l: [150, 10, -170]},
@@ -201,7 +201,8 @@ export function mountFlight(root, sec, next) {
   let yawOff = 0, pitchOff = 0, dragging = null;
   let roll = 0, yawPrev = null, yawRate = 0, spdSmooth = 0;
   const P = V(0, 0, 0), Lk = V(0, 0, 0), prevPos = V(-64, 42.5, -64), fwd = V(0, 0, 0);
-  const sound = makeRotorSound();
+  const voice = makeNarration();
+  let finaleSaid = false;
 
   stage.setManual(() => Lk);
 
@@ -214,6 +215,10 @@ export function mountFlight(root, sec, next) {
     $('bPause').textContent = '❚❚';
     $('end').classList.toggle('on', F >= F_CARD);
     vp.classList.toggle('ended', F >= F_CARD);
+    // Глава читается заново с начала; финал — на заставке.
+    chapter = -1;
+    finaleSaid = F >= F_CARD;
+    if (finaleSaid) voice.play('finale');
   }
   function start() {
     started = true;
@@ -222,14 +227,18 @@ export function mountFlight(root, sec, next) {
     if ($('cSound').checked) setSound(true);
   }
   function setSound(on) {
-    on ? sound.start() : sound.stop();
-    $('bSound').textContent = on ? 'ЗВУК ВКЛ' : 'ЗВУК ВЫКЛ';
+    voice.set(on);
+    $('bSound').textContent = on ? 'ГОЛОС ВКЛ' : 'ГОЛОС ВЫКЛ';
     $('bSound').classList.toggle('on', on);
   }
 
-  $('bGo').onclick = () => { F = 0; start(); };
-  $('bPause').onclick = () => { paused = !paused; $('bPause').textContent = paused ? '▶' : '❚❚'; };
-  $('bSound').onclick = () => setSound(!sound.on);
+  $('bGo').onclick = () => { F = 0; chapter = -1; start(); };
+  $('bPause').onclick = () => {
+    paused = !paused;
+    $('bPause').textContent = paused ? '▶' : '❚❚';
+    paused ? voice.pause() : voice.resume();
+  };
+  $('bSound').onclick = () => setSound(!voice.on);
   $('bSkip').onclick = () => jump(F_CARD);
   $('bReplay').onclick = () => jump(0);
 
@@ -308,13 +317,13 @@ export function mountFlight(root, sec, next) {
     $('hdg').textContent = String(Math.round(hdg) % 360).padStart(3, '0');
     tape.style.transform = `translateX(${-(hdg + 360) * 4}px)`;
     $('under').style.opacity = clamp(-alt / 6, 0, 1) * 0.9;
-    sound.setSpeed(started ? spdSmooth : 0);
 
     // Глава, титр, прогресс.
     let ci = 0;
     CHAPTERS.forEach((c, i) => { if (F >= c.t) ci = i; });
     if (ci !== chapter) {
       chapter = ci;
+      if (started && F < F_CARD) voice.play(ci);
       const c = CHAPTERS[ci];
       const cap = $('cap');
       cap.classList.remove('in');
@@ -328,7 +337,11 @@ export function mountFlight(root, sec, next) {
       b.firstChild.firstChild.style.width = `${clamp((F - c0) / (c1 - c0), 0, 1) * 100}%`;
       b.classList.toggle('on', i === ci);
     });
-    if (started && F >= F_CARD) { $('end').classList.add('on'); vp.classList.add('ended'); }
+    if (started && F >= F_CARD) {
+      $('end').classList.add('on');
+      vp.classList.add('ended');
+      if (!finaleSaid) { finaleSaid = true; voice.play('finale'); }
+    }
   });
 
   // ---------- загрузка ----------
@@ -344,7 +357,7 @@ export function mountFlight(root, sec, next) {
     document.body.classList.remove('immersive');
     removeEventListener('pointermove', onMove);
     removeEventListener('pointerup', onUp);
-    sound.dispose();
+    voice.dispose();
     stage.dispose();
   };
 }
