@@ -136,6 +136,7 @@ export function mountFlight(root, sec, next) {
     {t: 79.5, p: rel(160, 70, 200), l: tankerAt()},
     {t: 85.5, p: rel(110, 40, 40), l: rel(0, 10, -60)},
     {t: 93.5, p: rel(60, 16, -230), l: rel(0, 8, -40)},
+    {t: 97.5, p: rel(26, 17, -96), l: rel(0, 9, -72)},
     {t: 101.5, p: rel(-110, 30, -110), l: rel(0, 10, 0)},
     {t: 109.5, p: rel(-150, 110, -200), l: [1540, 10, 0]},
     {t: 116.5, p: [1600, 60, -170], l: tankerAt(5)},
@@ -258,7 +259,7 @@ export function mountFlight(root, sec, next) {
     const playing = started && !paused;
 
     // Мир рейса.
-    info = world.update(voyageTime(F), playing ? dt : 0, wall, playing);
+    info = world.update(voyageTime(F), playing ? dt : 0, wall, playing, camera);
     world.targets.forEach((tk, i) => {
       const html = `<b>Р-${tk.ri + 1}</b> ${Math.round(info.levels[i] * 100)}%`;
       if (levelTags[i].el.innerHTML !== html) levelTags[i].el.innerHTML = html;

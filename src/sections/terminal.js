@@ -5,7 +5,7 @@
 // Берег — линия x = 1700, суша в +x. Танкер у причала стоит носом в +z, левым бортом к причалу.
 import * as THREE from 'three';
 import {setLink, sagPoints} from '../kit/sea.js';
-import {makeMountains} from './landscape.js';
+import {makeCoast} from './landscape.js';
 
 export const SHORE_X = 1700;
 export const LAND_Y = 3;
@@ -29,6 +29,7 @@ const C = {
   green: mat(0x1fae55, {metalness: 0.3, roughness: 0.4}), yellow: mat(0xffc21a, {roughness: 0.45}), red: mat(0xe8322a, {roughness: 0.45}),
   dark: mat(0x1d1f22, {roughness: 0.8}), blue: mat(0x1d6fe0, {roughness: 0.4}), roof: mat(0x8e959b, {metalness: 0.4, roughness: 0.5}),
   inner: mat(0x5d6368, {roughness: 0.8, side: THREE.BackSide}), glass: mat(0x5aa9e6, {metalness: 0.6, roughness: 0.15}),
+  oilPipe: new THREE.MeshStandardMaterial({color: 0xffe08a, transparent: true, opacity: 0.34, roughness: 0.08, metalness: 0.1, depthWrite: false}),
   rope: mat(0xffd23f, {roughness: 0.8}),
 };
 
@@ -65,25 +66,24 @@ export function buildTerminal() {
 
   // --- Суша, площадки, дороги ---
   const flat = (o) => { o.userData.noCast = true; return o; };
-  add(flat(box(2600, 30, 3400, C.grass, SHORE_X + 1300, LAND_Y - 15, 0)));
   const pad = (x0, x1, z0, z1, m, y = LAND_Y + 0.05) => add(flat(box(x1 - x0, 0.1, z1 - z0, m, (x0 + x1) / 2, y, (z0 + z1) / 2)));
-  pad(1702, 1740, -1700, 1700, C.gravel);                      // полоса вдоль берега
-  pad(1728, 1744, -1700, 1700, C.asphalt, LAND_Y + 0.1);       // береговая дорога
+  pad(1702, 1740, -640, 640, C.gravel);                        // полоса вдоль берега
+  pad(1728, 1744, -640, 640, C.asphalt, LAND_Y + 0.1);         // береговая дорога
   pad(1822, 2110, -520, 500, C.gravel);                         // площадка резервуарного парка
   for (const x of [1917.5, 2012.5, 2112]) pad(x - 4, x + 4, -520, 500, C.asphalt, LAND_Y + 0.12);
   pad(1744, 1822, -540, -520, C.asphalt, LAND_Y + 0.12);
   pad(1750, 1792, 30, 95, C.asphalt, LAND_Y + 0.12);            // стоянка у причала
   // Разметка дороги.
-  const dash = new THREE.InstancedMesh(new THREE.BoxGeometry(0.25, 0.02, 4), mat(0xffffff), 340);
-  for (let i = 0; i < 340; i++) dash.setMatrixAt(i, new THREE.Matrix4().makeTranslation(1736, LAND_Y + 0.13, -1690 + i * 10));
+  const dash = new THREE.InstancedMesh(new THREE.BoxGeometry(0.25, 0.02, 4), mat(0xffffff), 128);
+  for (let i = 0; i < 128; i++) dash.setMatrixAt(i, new THREE.Matrix4().makeTranslation(1736, LAND_Y + 0.13, -635 + i * 10));
   add(dash);
 
   // --- Каменная отсыпка берега ---
-  const N = 3600;
+  const N = 1500;
   const rocks = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), mat(0xffffff, {roughness: 0.95}), N);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), s = new THREE.Vector3(), col = new THREE.Color();
   for (let i = 0; i < N; i++) {
-    const x = SHORE_X - 14 + rnd() * 16, z = -1700 + rnd() * 3400;
+    const x = SHORE_X - 14 + rnd() * 16, z = -660 + rnd() * 1320;
     const y = LAND_Y - ((SHORE_X + 2 - x) / 14) * 9 + rnd() * 0.6;
     const r = 1.2 + rnd() * 1.8;
     q.setFromEuler(e.set(rnd() * 3, rnd() * 3, rnd() * 3));
@@ -91,14 +91,14 @@ export function buildTerminal() {
     rocks.setColorAt(i, col.setHSL(0.08 + rnd() * 0.04, 0.12, 0.42 + rnd() * 0.2));
   }
   add(rocks);
-  add(box(6, 1, 3400, C.concrete, SHORE_X + 3, LAND_Y + 0.4, 0)); // кромка набережной
+  add(box(6, 1, 1320, C.concrete, SHORE_X + 3, LAND_Y + 0.4, 0)); // кромка набережной
 
   // --- Фонари вдоль дороги ---
-  const lampN = 85;
+  const lampN = 33;
   const poles = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.15, 0.2, 10, 8), C.steel, lampN);
   const heads = new THREE.InstancedMesh(new THREE.BoxGeometry(1.6, 0.35, 0.6), mat(0xfff6d0, {emissive: 0xfff2c0, emissiveIntensity: 0.6}), lampN);
   for (let i = 0; i < lampN; i++) {
-    const z = -1680 + i * 40;
+    const z = -640 + i * 40;
     poles.setMatrixAt(i, m4.makeTranslation(1726, LAND_Y + 5, z));
     heads.setMatrixAt(i, m4.makeTranslation(1727, LAND_Y + 10, z));
   }
@@ -174,7 +174,7 @@ export function buildTerminal() {
   // Трубопроводы по эстакаде от стендеров к берегу и на эстакаду вдоль берега.
   const trunkY = DECK_Y + 0.9;
   const trunk = [V(ARM_X + 4, trunkY, -2), V(1562, trunkY, -2), V(SHORE_X + 2, trunkY, -2), V(1745, trunkY, -2), V(1752, RACK_Y, -2), V(RACK_X - 6, RACK_Y, -2)];
-  jetty.add(tube(trunk, 0.55, C.yellow, 'pipes', 200));
+  jetty.add(tube(trunk, 0.75, C.oilPipe, 'pipes', 260));
   jetty.add(tube(trunk.map((p) => p.clone().add(V(0, 0, -2.4))), 0.45, C.steel, 'pipes', 200));
   jetty.add(tube(trunk.map((p) => p.clone().add(V(0, 0, 2.4))), 0.45, C.steel, 'pipes', 200));
   for (let x = SHORE_X + 8; x < 1752; x += 9) jetty.add(box(0.5, trunkY - LAND_Y, 8, C.steel, x, (trunkY + LAND_Y) / 2 - 0.5, -2, 'pipes'));
@@ -182,8 +182,8 @@ export function buildTerminal() {
   // --- Морские стендеры ---
   const arms = ARM_Z.map((z) => makeArm(V(ARM_X, DECK_Y, z)));
   for (const a of arms) { a.group.userData.dynamic = true; jetty.add(a.group); }
-  const armsHeader = tube([V(ARM_X + 1.5, DECK_Y + 0.9, -14), V(ARM_X + 1.5, DECK_Y + 0.9, 14)], 0.6, C.yellow, 'arms', 20);
-  jetty.add(armsHeader, link(V(ARM_X + 1.5, DECK_Y + 0.9, -2), V(ARM_X + 4, trunkY, -2), 0.55, C.yellow, 'arms'));
+  const armsHeader = tube([V(ARM_X + 1.5, DECK_Y + 0.9, -14), V(ARM_X + 1.5, DECK_Y + 0.9, 14)], 0.75, C.oilPipe, 'arms', 20);
+  jetty.add(armsHeader, link(V(ARM_X + 1.5, DECK_Y + 0.9, -2), V(ARM_X + 4, trunkY, -2), 0.75, C.oilPipe, 'arms'));
 
   // --- Резервуарный парк ---
   const tanks = [];
@@ -213,7 +213,7 @@ export function buildTerminal() {
   const branches = TARGET_TANKS.map(([ci, ri]) => {
     const x = COLS[ci], z = ROWS[ri];
     const pts = [V(RACK_X - 6, RACK_Y, -2), V(RACK_X - 6, RACK_Y, z), V(RACK_X + 8, RACK_Y, z), V(1806, RACK_Y, z), V(1812, LAND_Y + 2, z), V(x - TANK_R - 0.2, LAND_Y + 2, z)];
-    add(tube(pts.slice(1), 0.5, C.yellow, 'pipes', 80));
+    add(tube(pts.slice(1), 0.75, C.oilPipe, 'pipes', 120));
     return pts;
   });
 
@@ -232,17 +232,6 @@ export function buildTerminal() {
     cars.setColorAt(i, col.setHSL(rnd(), rnd() < 0.4 ? 0 : 0.7, rnd() < 0.3 ? 0.9 : 0.25 + rnd() * 0.35));
   }
   add(cars);
-  // Деревья по периметру.
-  const trees = 900;
-  const crowns = new THREE.InstancedMesh(new THREE.ConeGeometry(3.2, 9, 7), mat(0x3f8f3a, {roughness: 0.9}), trees);
-  const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.35, 0.45, 3, 6), mat(0x6b4a2b), trees);
-  for (let i = 0; i < trees; i++) {
-    const x = 2130 + rnd() * 260, z = -1500 + rnd() * 3000, k = 0.7 + rnd() * 0.8;
-    crowns.setMatrixAt(i, m4.compose(V(x, LAND_Y + 3 + 4.5 * k, z), q.identity(), s.set(k, k, k)));
-    trunks.setMatrixAt(i, m4.makeTranslation(x, LAND_Y + 1.5, z));
-  }
-  add(crowns, trunks);
-
   // --- Железнодорожный путь с наливными цистернами и эстакадой налива ---
   const RAIL_X = 1810, RZ0 = -505, RZ1 = -120;
   add(flat(box(7, 0.5, RZ1 - RZ0, C.gravel, RAIL_X, LAND_Y + 0.25, (RZ0 + RZ1) / 2)));
@@ -379,17 +368,11 @@ export function buildTerminal() {
     add(m);
   });
 
-  // --- Порт: портальные краны у причальной стенки ---
-  for (const z of [760, 860, 960]) {
-    const red = C.red;
-    for (const dx of [-6, 6]) for (const dz of [-5, 5]) add(box(1, 30, 1, red, 1712 + dx, LAND_Y + 15, z + dz));
-    add(box(14, 2, 12, red, 1712, LAND_Y + 30, z), box(70, 2, 2.4, red, 1700, LAND_Y + 33, z));
-  }
   // Мол с маяком.
   add(box(18, 6, 600, C.concrete, 1300, 0.5, 1150));
   add(cyl(2.5, 16, C.red, 1300, 11, 860, undefined, 16), cyl(2.6, 3, C.white, 1300, 20.5, 860, undefined, 16));
 
-  const mountains = makeMountains();
+  const mountains = makeCoast();
   return {group, arms, tanks, branches, trunk, mountains};
 }
 

@@ -99,7 +99,7 @@ function build(stage, api) {
   stage.onFrame((dt, wall) => {
     if (playing) t = Math.min(T_END, t + dt);
     if (t >= T_END && playing) { playing = false; api.$('bPlay').textContent = '▶ Повторить'; }
-    const info = w.update(t, dt, wall, playing);
+    const info = w.update(t, dt, wall, playing, stage.camera);
     w.cullShore(stage.camera);
     world.info = info;
 

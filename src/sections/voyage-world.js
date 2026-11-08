@@ -2,11 +2,12 @@
 // потоки нефти. Всё состояние — функция времени рейса t (с), поэтому и раздел «Транспорт»,
 // и облёт могут ставить любое время. update(t, dt, wall, playing) вызывается каждый кадр.
 import * as THREE from 'three';
-import {makeIce, makeFlow} from '../kit/sea.js';
+import {makeIce, makeFlow, makeBeads, OIL} from '../kit/sea.js';
 import {loadPlatform, loadTanker, TANKER_AT_PLATFORM} from '../kit/models.js';
 import {makeOffloading} from './offloading.js';
 import {buildTerminal, makeMooring, BERTH, ARM_Z} from './terminal.js';
 import {makeTug} from './tug.js';
+import {makeCrew} from './crew.js';
 import {mergeStatic} from '../kit/merge.js';
 
 // Шкала времени рейса, с.
@@ -88,10 +89,10 @@ function makeWake() {
         // превращаются в огромные прозрачные квадраты и съедают всю скорость отрисовки.
         if (age > 9.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); gl_PointSize = 0.0; return; }
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = min((14.0 + age * 9.0) * (300.0 / -mv.z), 72.0); gl_Position = projectionMatrix * mv; }`,
+        gl_PointSize = min((10.0 + age * 7.0) * (300.0 / -mv.z), 56.0); gl_Position = projectionMatrix * mv; }`,
     fragmentShader: /* glsl */ `varying float vA;
       void main() { float d = length(gl_PointCoord - 0.5); if (d > 0.5) discard;
-        gl_FragColor = vec4(vec3(0.95, 0.98, 1.0), (1.0 - smoothstep(0.2, 0.5, d)) * max(0.0, 0.55 - vA * 0.06)); }`,
+        gl_FragColor = vec4(vec3(0.95, 0.98, 1.0), (1.0 - smoothstep(0.2, 0.5, d)) * max(0.0, 0.32 - vA * 0.035)); }`,
   }));
   points.frustumCulled = false;
   points.renderOrder = 3;
@@ -151,10 +152,19 @@ export function buildVoyageWorld(stage) {
     for (const o of [riser, flange, run]) { tanker.add(o); stage.register(o, 'tanker'); }
   }
 
-  // Буксиры — дети танкера, чтобы двигаться с ним.
+  // Буксиры живут в порту всегда: ждут у мола, подходят к танкеру, прижимают его к причалу и уходят обратно.
   const tugs = [makeTug('ВОСТОК-1'), makeTug('ВОСТОК-2')];
   const TUG_Z = [-30, 110];
-  tugs.forEach((g) => { g.rotation.y = Math.PI / 2; tanker.add(g); stage.registerTree(g, 'tugs'); });
+  const TUG_WAIT = [{p: V(1385, 0, 265), rot: 0.3}, {p: V(1420, 0, 315), rot: -0.2}];
+  tugs.forEach((g) => { stage.scene.add(g); stage.registerTree(g, 'tugs'); });
+
+  // Экипаж на палубе: на баке, у манифольда и на крыльях мостика.
+  const crew = makeCrew([
+    V(-3, 7.8, -72), V(2.5, 7.8, -68), V(0.5, 7.8, -77),
+    V(-10, 7.8, 30), V(-9, 7.8, 41), V(6, 7.8, 36),
+    V(13.5, 21, 129), V(-13.5, 21, 129),
+  ]);
+  tanker.add(crew.group);
 
   // Терминал.
   const term = buildTerminal();
@@ -182,8 +192,8 @@ export function buildVoyageWorld(stage) {
     arm.solve(arm.stowed);
     return new THREE.CatmullRomCurve3(pts, false, 'centripetal');
   });
-  const oil = makeFlow(flowCurves, 320, 0xffa31a, 1.3, false, 40);
-  stage.scene.add(oil.points);
+  const oil = makeBeads(flowCurves, 300, 0.45, OIL, 34);
+  stage.scene.add(oil.mesh);
 
   const wake = makeWake();
   stage.scene.add(wake.points);
@@ -195,7 +205,9 @@ export function buildVoyageWorld(stage) {
   };
   const sternW = V(0, 0, 0), sideW = V(0, 0, 0);
 
-  function update(t, dt, wall, playing) {
+  const camPos = V(0, 0, 0);
+  function update(t, dt, wall, playing, cam) {
+    if (cam) camPos.copy(cam.position);
     const pose = plan.pose(t, info.pose);
     const rise = 3 * clamp01(phase(t, T.unload));
     tanker.position.set(pose.pos.x, Math.sin(wall * 0.6) * 0.15 + rise, pose.pos.z);
@@ -213,15 +225,22 @@ export function buildVoyageWorld(stage) {
     sideW.set(Math.cos(pose.rot), 0, -Math.sin(pose.rot));
     wake.update(playing ? dt : 0, sternW, sideW, pose.v * 160 + (t > T.back[0] && t < T.sea[0] ? 25 : 0));
 
-    // Буксиры: подходят к правому борту и прижимают танкер к причалу.
-    info.tugsOn = t > 42 && t < 61;
+    // Буксиры: от места ожидания к правому борту танкера, упор, потом обратно к молу.
+    info.tugsOn = t > 38 && t < 66;
     const kPush = ease(phase(t, [49, 54]));
+    const kGo = ease(phase(t, [38, 46])) * (1 - ease(phase(t, [58, 66])));
     tugs.forEach((g, i) => {
-      g.visible = info.tugsOn;
-      g.position.set(46 - 13 * kPush, -tanker.position.y + Math.sin(wall * 0.9 + i) * 0.2, TUG_Z[i]);
-      if (info.tugsOn) g.userData.spin(dt, playing ? 0.4 + kPush : 0);
+      const at = tanker.localToWorld(V(46 - 13 * kPush, 0, TUG_Z[i]));
+      const w = TUG_WAIT[i];
+      const atRot = pose.rot + Math.PI / 2;
+      g.position.set(w.p.x + (at.x - w.p.x) * kGo, Math.sin(wall * 0.9 + i) * 0.2, w.p.z + (at.z - w.p.z) * kGo);
+      g.rotation.y = w.rot + Math.atan2(Math.sin(atRot - w.rot), Math.cos(atRot - w.rot)) * kGo;
+      const moving = kGo > 0.02 && kGo < 0.98;
+      g.userData.spin(dt, playing ? (moving ? 1.2 : info.tugsOn ? 0.4 + kPush : 0.15) : 0);
     });
-    info.tugLabel = tanker.localToWorld(V(40, 22, TUG_Z[0]));
+    info.tugLabel = tugs[0].position.clone().add(V(0, 22, 0));
+
+    crew.update(wall, camPos);
 
     // Швартовка и стендеры.
     mooring.set(phase(t, T.moor));
@@ -232,7 +251,7 @@ export function buildVoyageWorld(stage) {
     });
 
     // Перекачка и уровень в резервуарах.
-    oil.points.visible = t >= T.unload[0];
+    oil.mesh.visible = t >= T.unload[0];
     oil.update(dt);
     targets.forEach((tk, i) => {
       const level = 0.3 + 0.55 * clamp01((t - T.unload[0] - i * 6) / 24);
@@ -251,7 +270,7 @@ export function buildVoyageWorld(stage) {
   const load = (onProgress) => Promise.all([loadPlatform(stage, onProgress), loadTanker(stage, tanker)]);
 
   // Берег прячем, пока камера у платформы: с шельфа до суши около 60 км, а в сцене — меньше двух.
-  const cullShore = (camera) => { term.group.visible = mooring.group.visible = camera.position.x > 650; };
+  const cullShore = (camera) => { term.group.visible = mooring.group.visible = tugs[0].visible = tugs[1].visible = camera.position.x > 650; };
 
   return {tanker, plan, ice, targets, update, load, cullShore, resetWake: () => wake.reset()};
 }

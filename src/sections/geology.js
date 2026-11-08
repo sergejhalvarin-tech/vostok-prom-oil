@@ -2,7 +2,7 @@
 // антиклинальная ловушка с нефтенасыщенной частью, вмурованные валуны, скважины с потоками.
 // Блок вырезан по плоскости z = 0 (лицевой срез), уходит вглубь до z = −900. Дно моря — y = −20.
 import * as THREE from 'three';
-import {makeFlow} from '../kit/sea.js';
+import {makeBeads, glassPipeMaterial, OIL, WATER} from '../kit/sea.js';
 import {SEABED} from '../kit/stage.js';
 
 const X0 = -600, X1 = 600, DEPTH = 900, BOT = -340, TOP = SEABED - 0.6;
@@ -147,14 +147,15 @@ export function makeSection() {
   };
   const prod = [-300, -195, -95, 60, 165, 285].map((xe, k) => curve([0, 1, 2, 5, 6, 7][k], xe, midOil));
   const inj = [curve(3, -400, () => -212), curve(4, 400, () => -212)];
-  const tubeMat = (c) => new THREE.MeshStandardMaterial({color: c, roughness: 0.35, metalness: 0.6, emissive: c, emissiveIntensity: 0.35});
-  const mProd = tubeMat(0xe0862b), mInj = tubeMat(0x3d8fd6);
-  for (const c of prod) group.add(new THREE.Mesh(new THREE.TubeGeometry(c, 140, 1.5, 10), mProd));
-  for (const c of inj) group.add(new THREE.Mesh(new THREE.TubeGeometry(c, 140, 1.5, 10), mInj));
+  // Обсадные колонны — полупрозрачные, с тонированным кантом: добывающие тёплые, нагнетательные синие.
+  const mProd = glassPipeMaterial(0xffc27a, 0.3), mInj = glassPipeMaterial(0x8cc8ff, 0.3);
+  const ring = (c, m) => new THREE.Mesh(new THREE.TubeGeometry(c, 160, 1.9, 14), m);
+  for (const c of prod) group.add(ring(c, mProd));
+  for (const c of inj) group.add(ring(c, mInj));
 
-  const oil = makeFlow(prod, 34, 0xffb340, 3.2, true);
-  const wat = makeFlow(inj, 40, 0x7cc4ff, 3.0, false);
-  group.add(oil.points, wat.points);
+  const oil = makeBeads(prod, 70, 1.05, OIL, 22, true);      // нефть поднимается к устьям
+  const wat = makeBeads(inj, 80, 1.0, WATER, 26, false);     // вода уходит в пласт
+  group.add(oil.mesh, wat.mesh);
 
   return {group, update: (dt) => { if (group.visible) { oil.update(dt); wat.update(dt); } }};
 }

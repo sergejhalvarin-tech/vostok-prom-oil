@@ -7,8 +7,8 @@ export function makeWater(sunDir, fogColor) {
   const uniforms = {
     uTime: {value: 0},
     uSun: {value: sunDir.clone().normalize()},
-    uDeep: {value: new THREE.Color(0x064766)},
-    uSky: {value: new THREE.Color(0x7fb8dc)},
+    uDeep: {value: new THREE.Color(0x0a3f63)},
+    uSky: {value: new THREE.Color(0x8ea6c8)},
     uFog: {value: fogColor},
     uOpacity: {value: 0.8},
   };
@@ -41,7 +41,7 @@ export function makeWater(sunDir, fogColor) {
         float fr = pow(1.0 - max(dot(n, v), 0.0), 4.0);
         vec3 col = mix(uDeep, uSky, clamp(0.06 + fr * 0.9, 0.0, 1.0));
         vec3 hv = normalize(v + uSun);
-        col += vec3(1.0, 0.86, 0.68) * pow(max(dot(n, hv), 0.0), 400.0) * 1.6;
+        col += vec3(1.0, 0.72, 0.42) * pow(max(dot(n, hv), 0.0), 260.0) * 2.2;
         float d = length(cameraPosition - vW);
         float f = smoothstep(800.0, 3400.0, d);
         col = mix(col, uFog, f);
@@ -118,6 +118,37 @@ export function makeFlow(curves, perCurve, color, size, reverse, speed = 45) {
   points.visible = true;
   update(0);
   return {points, update};
+}
+
+
+// Поток «шариками»: объёмные бусины, бегущие по кривым внутри прозрачных труб. Одна отрисовка на поток.
+export const OIL = {color: 0x7a3f0c, emissive: 0x3d1a00};
+export const WATER = {color: 0x2f8fff, emissive: 0x06306e};
+export function makeBeads(curves, perCurve, radius, look, speed = 30, reverse = false) {
+  const n = curves.length * perCurve;
+  const mat = new THREE.MeshStandardMaterial({color: look.color, emissive: look.emissive, emissiveIntensity: 0.9, roughness: 0.18, metalness: 0.25});
+  const mesh = new THREE.InstancedMesh(new THREE.SphereGeometry(radius, 12, 8), mat, n);
+  mesh.frustumCulled = false;
+  mesh.userData.noCast = true;
+  const t = Float32Array.from({length: n}, (_, i) => (i % perCurve) / perCurve);
+  const lens = curves.map((c) => c.getLength());
+  const m4 = new THREE.Matrix4(), v = new THREE.Vector3();
+  const update = (dt) => {
+    if (!mesh.visible) return;
+    for (let i = 0; i < n; i++) {
+      const ci = Math.floor(i / perCurve);
+      t[i] = (t[i] + (dt * speed) / lens[ci]) % 1;
+      curves[ci].getPointAt(reverse ? 1 - t[i] : t[i], v);
+      mesh.setMatrixAt(i, m4.makeTranslation(v.x, v.y, v.z));
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+  };
+  update(0);
+  return {mesh, update};
+}
+// Прозрачная «смотровая» труба, внутри которой видны бусины.
+export function glassPipeMaterial(tint = 0xd8e6ef, opacity = 0.32) {
+  return new THREE.MeshStandardMaterial({color: tint, transparent: true, opacity, roughness: 0.08, metalness: 0.1, depthWrite: false});
 }
 
 // Цветокоррекция после тонмаппинга: насыщенность и контраст.

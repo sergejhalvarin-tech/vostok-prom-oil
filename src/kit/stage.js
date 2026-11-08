@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {Sky} from 'three/addons/objects/Sky.js';
 import {makeWater} from './sea.js';
+import {makeClouds} from './clouds.js';
 
 export const SEABED = -20;
 const ORANGE = new THREE.Color(1, 0.5, 0.08);
@@ -19,7 +20,7 @@ export function createStage(vp, {cam, tgt, names = {}, onPick, pick = true} = {}
   renderer.setPixelRatio(pr);
   // Нейтральная цветопередача не выбеливает насыщенные цвета, в отличие от ACES.
   renderer.toneMapping = THREE.NeutralToneMapping;
-  renderer.toneMappingExposure = 0.92;
+  renderer.toneMappingExposure = 1.0;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
   vp.prepend(renderer.domElement);
@@ -38,11 +39,11 @@ export function createStage(vp, {cam, tgt, names = {}, onPick, pick = true} = {}
   const sky = new Sky();
   sky.scale.setScalar(12000);
   const su = sky.material.uniforms;
-  su.turbidity.value = 1.8;
-  su.rayleigh.value = 2.4;
-  su.mieCoefficient.value = 0.003;
-  su.mieDirectionalG.value = 0.86;
-  const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 19), THREE.MathUtils.degToRad(215));
+  su.turbidity.value = 5.5;
+  su.rayleigh.value = 2.6;
+  su.mieCoefficient.value = 0.006;
+  su.mieDirectionalG.value = 0.93;
+  const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 7), THREE.MathUtils.degToRad(128));
   su.sunPosition.value.copy(sunDir);
 
   const pmrem = new THREE.PMREMGenerator(renderer);
@@ -59,18 +60,20 @@ export function createStage(vp, {cam, tgt, names = {}, onPick, pick = true} = {}
   new THREE.CubeCamera(1, 20000, skyRT).update(renderer, skyScene);
   scene.background = skyRT.texture;
 
-  const FOG = new THREE.Color(0xa9cbe6);
+  const FOG = new THREE.Color(0xd9c3b3);
   scene.fog = new THREE.Fog(FOG, 900, 3600);
 
   // Солнце с тенью следует за точкой, на которую смотрит камера.
-  const sun = new THREE.DirectionalLight(0xfff0d8, 3.4);
+  const sun = new THREE.DirectionalLight(0xffb878, 3.6);
   sun.castShadow = true;
   sun.shadow.mapSize.set(1536, 1536);
   Object.assign(sun.shadow.camera, {left: -260, right: 260, top: 260, bottom: -260, near: 10, far: 1600});
   sun.shadow.bias = -0.0003;
   sun.shadow.normalBias = 0.5;
   scene.add(sun, sun.target);
-  scene.add(new THREE.HemisphereLight(0xd8ebff, 0x3a4a58, 0.75));
+  scene.add(new THREE.HemisphereLight(0xffd9c0, 0x3b4660, 0.85));
+  const clouds = makeClouds(sunDir);
+  scene.add(clouds.mesh);
 
   const water = makeWater(sunDir, FOG);
   scene.add(water.mesh);
@@ -86,6 +89,7 @@ export function createStage(vp, {cam, tgt, names = {}, onPick, pick = true} = {}
     const m = y > 0 ? 'air' : y > SEABED - 0.5 ? 'water' : 'rock';
     if (m === medium) return;
     medium = m;
+    clouds.mesh.visible = m === 'air';
     if (m === 'air') { scene.background = skyRT.texture; scene.fog.color.copy(FOG); scene.fog.near = 900; scene.fog.far = 3600; }
     if (m === 'water') { scene.background = UW; scene.fog.color.copy(UW); scene.fog.near = 2; scene.fog.far = 140; }
     if (m === 'rock') { scene.background = DEEP; scene.fog.color.copy(DEEP); scene.fog.near = 900; scene.fog.far = 5000; }
@@ -235,6 +239,7 @@ export function createStage(vp, {cam, tgt, names = {}, onPick, pick = true} = {}
     sun.target.position.copy(focusPt);
     sun.position.copy(focusPt).addScaledVector(sunDir, 700);
     water.update(t);
+    clouds.update(t);
 
     // Подсветка: выбранная группа пульсирует, связанные — слабее, под курсором — ровно.
     const pulse = 0.18 + 0.12 * Math.sin(t * 3.2);
