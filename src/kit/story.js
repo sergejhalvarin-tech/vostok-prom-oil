@@ -33,7 +33,9 @@ export function mountStory(root, cfg) {
       </aside>
     </section>`;
 
-  const $ = (id) => root.querySelector('#' + id);
+  let disposed = false;
+  // После ухода из раздела его загрузчики не должны трогать разметку нового раздела.
+  const $ = (id) => (disposed ? null : root.querySelector('#' + id));
   let step = -1;
   const stage = createStage($('vp'), {
     cam: steps[0].cam, tgt: steps[0].tgt, names: cfg.names,
@@ -91,6 +93,7 @@ export function mountStory(root, cfg) {
   go(0, {byUser: false});
 
   return () => {
+    disposed = true;
     ctrl.dispose?.();
     stage.dispose();
   };
