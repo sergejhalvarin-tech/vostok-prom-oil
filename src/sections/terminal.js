@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import {setLink, sagPoints} from '../kit/sea.js';
 import {makeCoast} from './landscape.js';
 import {makeArm} from './loading-arm.js';
-import {buildPipeNetwork, buildSIKN, buildAdmin, buildLightningRod, buildPumpStation, buildTrunkLines, tankMarkings, routePoints} from './tankfarm.js';
+import {buildPipeNetwork, buildSIKN, buildAdmin, buildLightningRod, buildPumpStation, tankMarkings, routePoints} from './tankfarm.js';
 
 export const SHORE_X = 1700;
 export const LAND_Y = 3;
@@ -218,8 +218,7 @@ export function buildTerminal() {
   add(tube(routePoints(throughSikn.slice(3), 1.5), 0.75, C.oilPipe, 'pipes', 80));
   const branches = net.recv.map((r) => routePoints([...toSikn, ...throughSikn.slice(1), ...r.tail.slice(1)], 1.5));
   const station = buildPumpStation(group);
-  const trunkLines = buildTrunkLines(group);
-  const dispatchPath = [...net.dispatch, V(2296, PY, 453), V(2330, LAND_Y + 2.2, 462), ...trunkLines.curves[0].getSpacedPoints(14).slice(0, 4)];
+  const dispatchPath = [...net.dispatch, V(2296, PY, 453), V(2330, LAND_Y + 2.2, 462)];
 
   // --- Здания терминала ---
   const bld = (w, h, d, x, z, m = C.white, roofM = C.blue, key = 'farm') => {
@@ -390,7 +389,7 @@ function textures() {
   brandTex.anisotropy = 8;
 }
 
-function makeTank(r, h, type, level, brand) {
+export function makeTank(r, h, type, level, brand) {
   textures();
   const g = new THREE.Group();
   const shellMat = SHELL_MAT ||= new THREE.MeshStandardMaterial({color: 0xffffff, map: shellTex, roughness: 0.45, metalness: 0.1});

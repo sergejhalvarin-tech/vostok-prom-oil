@@ -27,8 +27,8 @@ stamps_path = out / 'stamps.json'
 stamps = json.loads(stamps_path.read_text(encoding='utf-8')) if stamps_path.exists() else {}
 
 
-async def sentence(text, path):
-    for attempt in range(10):
+async def sentence(text, path, attempts=10, pause=3):
+    for attempt in range(attempts):
         # Системный (потоковый) резолвер DNS: асинхронный aiodns на части Windows-машин не находит DNS-серверы.
         conn = aiohttp.TCPConnector(resolver=aiohttp.ThreadedResolver())
         tts = edge_tts.Communicate(text, cfg['voice'], rate=cfg['rate'], pitch=cfg['pitch'], connector=conn)
@@ -36,8 +36,8 @@ async def sentence(text, path):
             await tts.save(str(path))
             return
         except edge_tts.exceptions.NoAudioReceived:
-            await asyncio.sleep(3 + attempt * 3)
-    raise SystemExit(f'не удалось синтезировать фразу: {text}')
+            await asyncio.sleep(pause + attempt * pause)
+    raise RuntimeError(text)
 
 
 async def say(key, text):
@@ -46,12 +46,24 @@ async def say(key, text):
     if path.exists() and stamps.get(key) == stamp:
         print('без изменений:', path.name)
         return
+    # Сначала вся глава одним запросом (меньше запросов — реже отказы сервиса).
+    try:
+        await sentence(text, path, attempts=6, pause=12)
+        stamps[key] = stamp
+        stamps_path.write_text(json.dumps(stamps, indent=2), encoding='utf-8')
+        print('готово целиком:', path.name)
+        return
+    except RuntimeError:
+        print('целиком не вышло, по предложениям:', path.name)
     parts = [p.strip() for p in re.split(r'(?<=[.!?…])\s+', text) if p.strip()]
     with tempfile.TemporaryDirectory() as tmp:
         files = []
         for i, p in enumerate(parts):
             f = pathlib.Path(tmp) / f'{i}.mp3'
-            await sentence(p, f)
+            try:
+                await sentence(p, f, attempts=12, pause=8)
+            except RuntimeError:
+                raise SystemExit(f'не удалось синтезировать фразу: {p}')
             files.append(f)
         # Склейка с паузой 0,35 с между предложениями.
         silence = pathlib.Path(tmp) / 'gap.mp3'

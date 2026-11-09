@@ -8,7 +8,6 @@
 //  • административное здание, молниеотводы, маркировка резервуаров.
 import * as THREE from 'three';
 import {setLink} from '../kit/sea.js';
-import {heightAt} from './landscape.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const G = 3;                    // отметка земли площадки
@@ -88,7 +87,7 @@ export function routePoints(pts, R) {
   return out;
 }
 // Труба по трассе: отводы, фланцы по концам и через 12 м, опоры под низкими горизонтальными участками.
-function pipe(p, pts, r, m, key, {R = Math.max(1, r * 3), supports = true, flangeStep = 12} = {}) {
+export function pipe(p, pts, r, m, key, {R = Math.max(1, r * 3), supports = true, flangeStep = 12, ground = G} = {}) {
   const dense = routePoints(pts, R);
   const curve = new THREE.CatmullRomCurve3(dense, false, 'centripetal');
   const len = curve.getLength();
@@ -105,11 +104,11 @@ function pipe(p, pts, r, m, key, {R = Math.max(1, r * 3), supports = true, flang
       ring(p, a.clone().addScaledVector(d, s), d, r * 1.12, r * 0.18, fm, key);
     }
     // Опоры: бетонная тумба + стальное ложе под горизонтальными участками у земли.
-    if (supports && Math.abs(d.y) < 0.01 && a.y < G + 8) {
+    if (supports && Math.abs(d.y) < 0.01 && a.y < ground + 8) {
       for (let s = 4; s < L - 2; s += 8) {
-        const q = a.clone().addScaledVector(d, s), h = q.y - r - G;
+        const q = a.clone().addScaledVector(d, s), h = q.y - r - ground;
         if (h < 0.3) continue;
-        box(p, 0.9, h - 0.25, 0.9, M.concrete, q.x, G + (h - 0.25) / 2, q.z, key);
+        box(p, 0.9, h - 0.25, 0.9, M.concrete, q.x, ground + (h - 0.25) / 2, q.z, key);
         box(p, Math.abs(d.x) > 0.5 ? 0.3 : r * 2.4, 0.25, Math.abs(d.z) > 0.5 ? 0.3 : r * 2.4, M.steel, q.x, q.y - r - 0.12, q.z, key);
       }
     }
@@ -117,7 +116,7 @@ function pipe(p, pts, r, m, key, {R = Math.max(1, r * 3), supports = true, flang
   return dense;
 }
 // Задвижка с электроприводом: корпус, фланцы, шпиндель, жёлтый привод.
-function valve(p, at, axis, r, key) {
+export function valve(p, at, axis, r, key) {
   const d = axis === 'x' ? V(1, 0, 0) : axis === 'z' ? V(0, 0, 1) : V(0, 1, 0);
   const body = cyl(p, r * 1.5, r * 2.4, M.grey, at.x, at.y, at.z, key);
   body.quaternion.setFromUnitVectors(V(0, 1, 0), d);
@@ -295,10 +294,11 @@ export function buildAdmin(p, {x, z, ry = Math.PI / 2}) {
 
 // ======================================================================
 // Молниеотвод — решётчатая башня из четырёх поясов с крестовой решёткой, красно-белая, с площадками и шпилем.
-export function buildLightningRod(p, x, z, H = 48) {
+export function buildLightningRod(p, x, z, H = 48, gy = G) {
   const k = 'rods', levels = [0, 7, 14, 21, 28, 35, 42, H];
+  const G0 = gy;
   const w = (y) => 3.2 - (y / H) * 2.4;
-  const corners = (y) => [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => V(x + a * w(y), G + y, z + b * w(y)));
+  const corners = (y) => [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => V(x + a * w(y), G0 + y, z + b * w(y)));
   for (let i = 0; i < levels.length - 1; i++) {
     const m = i % 2 ? M.white : M.red;
     const A = corners(levels[i]), B = corners(levels[i + 1]);
@@ -311,21 +311,22 @@ export function buildLightningRod(p, x, z, H = 48) {
     }
   }
   for (const y of [21, 35]) {
-    box(p, w(y) * 2 + 1.2, 0.12, w(y) * 2 + 1.2, M.white, x, G + y + 0.05, z, k);
-    for (const [a, b] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) rod(p, V(x + a * (w(y) + 0.6), G + y, z + b * (w(y) + 0.6)), V(x + a * (w(y) + 0.6), G + y + 1.1, z + b * (w(y) + 0.6)), 0.04, M.white, k, 4);
+    box(p, w(y) * 2 + 1.2, 0.12, w(y) * 2 + 1.2, M.white, x, G0 + y + 0.05, z, k);
+    for (const [a, b] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) rod(p, V(x + a * (w(y) + 0.6), G0 + y, z + b * (w(y) + 0.6)), V(x + a * (w(y) + 0.6), G0 + y + 1.1, z + b * (w(y) + 0.6)), 0.04, M.white, k, 4);
   }
-  rod(p, V(x, G + H, z), V(x, G + H + 7, z), 0.09, M.steel, k, 6);
-  for (const [a, b] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) box(p, 1.2, 0.6, 1.2, M.concrete, x + a * w(0), G + 0.3, z + b * w(0), k);
+  rod(p, V(x, G0 + H, z), V(x, G0 + H + 7, z), 0.09, M.steel, k, 6);
+  for (const [a, b] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) box(p, 1.2, 0.6, 1.2, M.concrete, x + a * w(0), G0 + 0.3, z + b * w(0), k);
 }
 
 // ======================================================================
 // Насосная станция — разрез: двускатная синяя кровля (южный скат прозрачный), белые стены с синим цоколем,
 // четыре магистральных насоса (синие корпуса с красным поясом, жёлтые болты) с электродвигателями,
 // белые трубопроводы с красными полосами, кран-балка; снаружи — подпорные вертикальные насосы на площадках.
-export function buildPumpStation(p, {cx = 2296, cz = 453} = {}) {
-  const k = 'pumpst', L = 72, D = 26, H = 10;
+export function buildPumpStation(p, {cx = 2296, cz = 453, cy = G, scale = 1, key = 'pumpst'} = {}) {
+  const k = key, L = 72, D = 26, H = 10;
   const g = new THREE.Group();
-  g.position.set(cx, G, cz);
+  g.position.set(cx, cy, cz);
+  g.scale.setScalar(scale);
   p.add(g);
   box(g, L, 0.3, D, M.floor, 0, 0.15, 0, k);
   for (let x = -L / 2 + 4; x < L / 2; x += 6) box(g, 0.08, 0.02, D - 2, M.yellow, x, 0.32, 0, k);
@@ -421,46 +422,8 @@ export function buildPumpStation(p, {cx = 2296, cz = 453} = {}) {
 }
 
 // ======================================================================
-// Магистральные нефтепроводы: два белых трубопровода с красными полосами на опорах, по рельефу за горы.
-export function buildTrunkLines(p, {x0 = 2334, z0 = 462, x1 = 6100} = {}) {
-  const k = 'trunk';
-  const lines = [z0, z0 + 12];
-  const curves = [];
-  for (const zz of lines) {
-    const pts = [];
-    for (let x = x0; x <= x1; x += 12) {
-      const z = zz + 40 * Math.sin((x - x0) / 700) * Math.min(1, (x - x0) / 400);
-      let h = 0;
-      for (const dx of [-6, 0, 6]) h = Math.max(h, heightAt(x + dx, z));
-      pts.push(V(x, Math.max(G, h) + 1.8, z));
-    }
-    // Сглаживание по высоте, чтобы трасса шла плавно.
-    for (let it = 0; it < 3; it++) for (let i = 1; i < pts.length - 1; i++) pts[i].y = Math.max(pts[i].y, (pts[i - 1].y + pts[i + 1].y) / 2);
-    const c = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
-    curves.push(c);
-    const t = new THREE.Mesh(new THREE.TubeGeometry(c, pts.length * 2, 0.75, 14), M.white);
-    t.userData.key = k;
-    p.add(t);
-    // Опоры (инстансы) и красные полосы.
-    const sup = new THREE.InstancedMesh(new THREE.BoxGeometry(1.4, 1, 1.4), M.concrete, pts.length);
-    const band = new THREE.InstancedMesh(new THREE.TorusGeometry(0.78, 0.14, 6, 24), M.red, Math.ceil(pts.length / 3));
-    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = V(1, 1, 1);
-    pts.forEach((pt, i) => {
-      const ground = Math.max(G, heightAt(pt.x, pt.z)) - 0.5, hh = pt.y - 0.75 - ground;
-      sup.setMatrixAt(i, m4.compose(V(pt.x, ground + hh / 2, pt.z), q.identity(), s.set(1, Math.max(0.3, hh), 1)));
-      if (i % 3 === 0) {
-        const tg = c.getTangentAt(i / (pts.length - 1));
-        band.setMatrixAt(i / 3, m4.compose(pt, q.setFromUnitVectors(V(0, 0, 1), tg), s.set(1, 1, 1)));
-      }
-    });
-    sup.userData.noCast = true;
-    p.add(sup, band);
-  }
-  return {curves};
-}
-
-// ======================================================================
 // Маркировка резервуаров «Транснефть»: одна текстура-атлас (две дуги — синяя и красная, название, номер).
+export {M as FARM_MAT};
 export function tankMarkings(p, tanks, tankR, tankH) {
   const COLS = 4, ROWS = 8, CW = 512, CH = 128;
   const cv = document.createElement('canvas');

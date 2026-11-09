@@ -9,6 +9,8 @@ import {buildTerminal, makeMooring, BERTH, ARM_Z} from './terminal.js';
 import {makeTug} from './tug.js';
 import {makeCrew} from './crew.js';
 import {mergeStatic} from '../kit/merge.js';
+import {buildMainline, buildStations, buildDepot} from './pipeline.js';
+import {makeCoast} from './landscape.js';
 
 // Шкала времени рейса, с.
 export const T = {disc: [0, 4], back: [4, 10], turn: [10, 15], sea: [15, 52], push: [52, 57], moor: [57, 63], arms: [63, 70], unload: [70, 106]};
@@ -194,9 +196,21 @@ export function buildVoyageWorld(stage) {
   });
   const oil = makeBeads(flowCurves, 420, 0.3, OIL, 34);
   stage.scene.add(oil.mesh);
+  // Магистраль, промежуточные НПС и нефтебаза — за горами, отдельной группой (видны и с моря на горизонте).
+  const inland = new THREE.Group();
+  const mainline = buildMainline(inland);
+  const stations = buildStations(inland);
+  const depot = buildDepot(inland);
+  mergeStatic(inland);
+  stage.scene.add(inland);
+  stage.scene.add(makeCoast({x0: 6150, x1: 14900, seg: 330, trees: 14000}));          // долина за хребтом
+  stage.registerTree(inland);
   // Раздача: из резервуара по коллектору и эстакаде в насосную станцию и в магистральный нефтепровод.
-  const outflow = makeBeads([new THREE.CatmullRomCurve3(term.dispatchPath, false, 'centripetal')], 260, 0.3, OIL, 22);
+  const outflow = makeBeads([new THREE.CatmullRomCurve3([...term.dispatchPath, ...mainline.curves[0].getSpacedPoints(400).slice(0, 6)], false, 'centripetal')], 260, 0.3, OIL, 22);
   term.group.add(outflow.mesh);
+  // На нефтебазе: из магистрали в резервуар и на налив в цистерну.
+  const depotFlow = makeBeads([new THREE.CatmullRomCurve3(depot.flow, false, 'centripetal')], 360, 0.3, OIL, 26);
+  inland.add(depotFlow.mesh);
 
   const wake = makeWake();
   stage.scene.add(wake.points);
@@ -256,6 +270,7 @@ export function buildVoyageWorld(stage) {
     // Перекачка и уровень в резервуарах.
     oil.mesh.visible = t >= T.unload[0];
     outflow.update(dt);
+    depotFlow.update(dt);
     oil.update(dt);
     targets.forEach((tk, i) => {
       const level = 0.3 + 0.55 * clamp01((t - T.unload[0] - i * 6) / 24);
@@ -276,5 +291,5 @@ export function buildVoyageWorld(stage) {
   // Берег прячем, пока камера у платформы: с шельфа до суши около 60 км, а в сцене — меньше двух.
   const cullShore = (camera) => { term.group.visible = mooring.group.visible = tugs[0].visible = tugs[1].visible = camera.position.x > 650; };
 
-  return {tanker, plan, ice, targets, update, load, cullShore, resetWake: () => wake.reset()};
+  return {tanker, plan, ice, targets, update, load, cullShore, stations, depot, resetWake: () => wake.reset()};
 }

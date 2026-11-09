@@ -32,7 +32,7 @@ export function createStage(vp, {cam, tgt, names = {}, onPick, pick = true} = {}
   controls.target.set(...tgt);
   controls.enableDamping = true;
   controls.minDistance = 20;
-  controls.maxDistance = 2200;
+  controls.maxDistance = 3200;
   controls.maxPolarAngle = Math.PI * 0.485;
 
   // Небо низкого полярного солнца + окружение для отражений.
