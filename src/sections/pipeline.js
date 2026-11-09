@@ -33,10 +33,18 @@ const cyl = (p, r, h, m, x, y, z, key, rot) => {
 
 // ======================================================================
 // Трасса: ось по pipeZ(x), высота — над рельефом с запасом, без провалов в русла рек.
+// Компенсационный зигзаг надземной прокладки (температурные удлинения), у станций и концов — прямо.
+const tri = (t) => 2 * Math.abs(2 * (t - Math.floor(t + 0.5))) - 1;
+const sm = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+export function zigZ(x) {
+  let k = sm(MAIN.x0, MAIN.x0 + 200, x) * (1 - sm(MAIN.x1 - 200, MAIN.x1, x));
+  for (const st of STATIONS) k *= sm(70, 170, Math.abs(x - st.x));
+  return pipeZ(x) + 9 * tri((x - MAIN.x0) / 270) * k;
+}
 function routeProfile(x0, x1, step = 18) {
   const pts = [];
   for (let x = x0; x <= x1; x += step) {
-    const z = pipeZ(x);
+    const z = zigZ(x);
     let h = -1e9;
     for (let dx = -36; dx <= 36; dx += 12) h = Math.max(h, heightAt(x + dx, z));
     pts.push(V(x, h + 2.6, z));
@@ -147,7 +155,7 @@ function routeHeight(x) {
 export function buildDepot(p) {
   const {x: cx, z: cz} = DEPOT;
   const y = heightAt(cx, cz), G1 = y + 0.05, PY = y + 1.5, k = 'depot', kr = 'rail';
-  box(p, DEPOT.w - 40, 0.12, DEPOT.d - 40, mat(0xd6cfbb, {roughness: 1}), cx, y + 0.06, cz, k);
+  box(p, DEPOT.w - 40, 0.12, DEPOT.d - 40, mat(0x9a968b, {roughness: 1}), cx, y + 0.06, cz, k);
   // Резервуары: четыре больших и два малых, в обваловании.
   const tanks = [[-250, -150, 28], [-170, -150, 28], [-250, -60, 28], [-170, -60, 28], [-80, -200, 14], [-80, -160, 14]];
   for (const [dx, dz, r] of tanks) {

@@ -11,6 +11,7 @@ import {makeCrew} from './crew.js';
 import {mergeStatic} from '../kit/merge.js';
 import {buildMainline, buildStations, buildDepot} from './pipeline.js';
 import {makeCoast} from './landscape.js';
+import {makeFauna} from './fauna.js';
 
 // Шкала времени рейса, с.
 export const T = {disc: [0, 4], back: [4, 10], turn: [10, 15], sea: [15, 52], push: [52, 57], moor: [57, 63], arms: [63, 70], unload: [70, 106]};
@@ -203,7 +204,10 @@ export function buildVoyageWorld(stage) {
   const depot = buildDepot(inland);
   mergeStatic(inland);
   stage.scene.add(inland);
-  stage.scene.add(makeCoast({x0: 6150, x1: 14900, seg: 330, trees: 14000}));          // долина за хребтом
+  const valley = makeCoast({x0: 6150, x1: 14900, seg: 330, density: {conifers: 16000, broadleaf: 9000, shrubs: 7000, rocks: 3000}});
+  stage.scene.add(valley);                                                            // долина за хребтом
+  const fauna = makeFauna();
+  stage.scene.add(fauna.group);
   stage.registerTree(inland);
   // Раздача: из резервуара по коллектору и эстакаде в насосную станцию и в магистральный нефтепровод.
   const outflow = makeBeads([new THREE.CatmullRomCurve3([...term.dispatchPath, ...mainline.curves[0].getSpacedPoints(400).slice(0, 6)], false, 'centripetal')], 260, 0.3, OIL, 22);
@@ -289,7 +293,12 @@ export function buildVoyageWorld(stage) {
   const load = (onProgress) => Promise.all([loadPlatform(stage, onProgress), loadTanker(stage, tanker)]);
 
   // Берег прячем, пока камера у платформы: с шельфа до суши около 60 км, а в сцене — меньше двух.
-  const cullShore = (camera) => { term.group.visible = mooring.group.visible = tugs[0].visible = tugs[1].visible = camera.position.x > 650; };
+  const cullShore = (camera) => {
+    term.group.visible = mooring.group.visible = tugs[0].visible = tugs[1].visible = camera.position.x > 650;
+    term.mountains.userData.update(camera.position);
+    valley.userData.update(camera.position);
+    fauna.update(camera.position);
+  };
 
-  return {tanker, plan, ice, targets, update, load, cullShore, stations, depot, resetWake: () => wake.reset()};
+  return {tanker, plan, ice, targets, update, load, cullShore, stations, depot, fauna, resetWake: () => wake.reset()};
 }

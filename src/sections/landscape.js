@@ -2,6 +2,7 @@
 // с прямой набережной; за ней холмы и невысокие горы, покрытые тайгой, со снегом на вершинах.
 // Высота задаётся функцией heightAt(x, z), по ней же расставляется лес.
 import * as THREE from 'three';
+import {makeVegetation} from './vegetation.js';
 
 function hash(x, y) {
   const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
@@ -66,11 +67,13 @@ function natural(x, z) {
   const beach = 1.6 * smooth(0, 30, d);
   const hills = 26 * fbm(x / 380, z / 380) * smooth(20, 260, d);
   const range = 1 - smooth(5100, 6700, x);
-  const mount = 430 * Math.pow(ridged(x / 1300 + 2.1, z / 1300 - 0.7), 1.25) * smooth(500, 2300, d) * range;
+  // Коридор магистрали: через хребет — широкая седловина с пологим рельефом.
+  const cor = x > 2250 ? 1 - smooth(160, 700, Math.abs(z - pipeZ(x))) : 0;
+  const mount = 430 * Math.pow(ridged(x / 1300 + 2.1, z / 1300 - 0.7), 1.25) * smooth(500, 2300, d) * range * (1 - 0.9 * cor);
   const v = smooth(4900, 6500, x);
-  const valley = v * (70 + 34 * fbm(x / 650 + 9, z / 650 - 3));
-  const rim = v * 420 * Math.pow(ridged(x / 1500 - 4.3, z / 1500 + 2.2), 1.3) * smooth(1900, 3300, Math.abs(z - 300));
-  let h = 1.2 + beach + hills + mount + valley + rim;
+  const valley = v * (70 + 34 * fbm(x / 650 + 9, z / 650 - 3) * (1 - 0.6 * cor));
+  const rim = v * 420 * Math.pow(ridged(x / 1500 - 4.3, z / 1500 + 2.2), 1.3) * smooth(1900, 3300, Math.abs(z - 300)) * (1 - cor);
+  let h = 1.2 + beach + hills * (1 - 0.5 * cor) + mount + valley + rim;
   if (x > 5500) {
     // Русло реки: дно ниже уровня воды, пологие берега.
     const dzdx = 1250 / 1450 * Math.cos((x - 5900) / 1450 + 0.4);
@@ -101,7 +104,7 @@ export function heightAt(x, z) {
   return h;
 }
 
-export function makeCoast({x0 = 1420, x1 = 6200, z0 = -3400, z1 = 3800, seg = 300, trees = 9000} = {}) {
+export function makeCoast({x0 = 1420, x1 = 6200, z0 = -3400, z1 = 3800, seg = 300, density = {conifers: 11000, broadleaf: 5000, shrubs: 4000, rocks: 2000}} = {}) {
   const W = x1 - x0, D = z1 - z0;
   const geo = new THREE.PlaneGeometry(W, D, seg, Math.round((seg * D) / W)).rotateX(-Math.PI / 2);
   geo.translate(x0 + W / 2, 0, z0 + D / 2);
@@ -110,8 +113,9 @@ export function makeCoast({x0 = 1420, x1 = 6200, z0 = -3400, z1 = 3800, seg = 30
   geo.computeVertexNormals();
 
   const nrm = geo.attributes.normal, cols = new Float32Array(pos.count * 3);
-  const sand = new THREE.Color(0xe0cc98), wet = new THREE.Color(0x8f8566), meadow = new THREE.Color(0x86ad55),
-    taiga = new THREE.Color(0x2c5530), rock = new THREE.Color(0x8a8379), snow = new THREE.Color(0xf6f9fc), c = new THREE.Color();
+  const sand = new THREE.Color(0xe0cc98), wet = new THREE.Color(0x8f8566), meadow = new THREE.Color(0x7fb04a),
+    taiga = new THREE.Color(0x2c5530), rock = new THREE.Color(0x8a8379), snow = new THREE.Color(0xf6f9fc), c = new THREE.Color(),
+    autumnO = new THREE.Color(0xc8742c), autumnR = new THREE.Color(0x9e3b24), gold = new THREE.Color(0xd6aa3a), gravel = new THREE.Color(0x9c978c);
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i), y = pos.getY(i), slope = 1 - nrm.getY(i), j = hash(x * 0.03, z * 0.03);
     const d = x - coastX(z);
@@ -121,6 +125,16 @@ export function makeCoast({x0 = 1420, x1 = 6200, z0 = -3400, z1 = 3800, seg = 30
     else if (d < 32 && y < 3.5 && !(x >= 1700 && Math.abs(z) < PAD.z)) c.copy(sand);
     else if (y < 40) c.copy(meadow).lerp(taiga, smooth(8, 40, y) * 0.7);
     else c.copy(taiga).lerp(rock, smooth(0.35, 0.75, slope + j * 0.1));
+    // Осенняя тундра и луга: рыжие, золотые и бордовые пятна на открытых местах.
+    if (y > 3 && slope < 0.35 && x > 2300) {
+      const a = fbm(x / 140 + 7, z / 140 - 2, 3);
+      c.lerp(a > 0.55 ? autumnR : autumnO, smooth(0.42, 0.62, a) * 0.55);
+      c.lerp(gold, smooth(0.6, 0.75, fbm(x / 90, z / 90 + 5, 2)) * 0.35);
+    }
+    // Скальные обнажения на крутизне.
+    c.lerp(rock, smooth(0.5, 0.8, slope) * 0.85);
+    // Площадки станций и нефтебазы — отсыпка гравием.
+    if (x > 6000 && [...STATIONS, DEPOT].some((s) => Math.abs(x - s.x) < (s.w || 200) / 2 && Math.abs(z - s.z) < (s.d || 150) / 2)) c.copy(gravel).offsetHSL(0, 0, j * 0.04);
     const snowLine = 270 + j * 60;
     if (y > snowLine) c.lerp(snow, smooth(snowLine, snowLine + 70, y) * (1 - smooth(0.55, 0.85, slope)));
     cols[i * 3] = c.r; cols[i * 3 + 1] = c.g; cols[i * 3 + 2] = c.b;
@@ -130,59 +144,18 @@ export function makeCoast({x0 = 1420, x1 = 6200, z0 = -3400, z1 = 3800, seg = 30
   terrain.receiveShadow = true;
   terrain.userData.noCast = true;
 
-  // Тайга: ели на склонах ниже снеговой линии, не на пляже и не на площадке терминала.
-  const tree = (() => {
-    const parts = [
-      new THREE.CylinderGeometry(0.25, 0.35, 2.2, 5).translate(0, 1.1, 0),
-      new THREE.ConeGeometry(2.4, 5.2, 7).translate(0, 4.2, 0),
-      new THREE.ConeGeometry(1.8, 4.2, 7).translate(0, 6.6, 0),
-      new THREE.ConeGeometry(1.1, 3.2, 7).translate(0, 8.8, 0),
-    ];
-    const g = new THREE.BufferGeometry();
-    const merged = parts.map((p) => p.toNonIndexed());
-    const n = merged.reduce((a, p) => a + p.attributes.position.count, 0);
-    const P = new Float32Array(n * 3), N = new Float32Array(n * 3), Cc = new Float32Array(n * 3);
-    let o = 0;
-    merged.forEach((p, k) => {
-      const col = k === 0 ? new THREE.Color(0x5a3b22) : new THREE.Color(0xffffff);
-      P.set(p.attributes.position.array, o * 3);
-      N.set(p.attributes.normal.array, o * 3);
-      for (let i = 0; i < p.attributes.position.count; i++) col.toArray(Cc, (o + i) * 3);
-      o += p.attributes.position.count;
-    });
-    g.setAttribute('position', new THREE.BufferAttribute(P, 3));
-    g.setAttribute('normal', new THREE.BufferAttribute(N, 3));
-    g.setAttribute('color', new THREE.BufferAttribute(Cc, 3));
-    return g;
-  })();
-  const N = trees;
-  const forest = new THREE.InstancedMesh(tree, new THREE.MeshLambertMaterial({vertexColors: true}), N);
-  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), col = new THREE.Color();
-  let k = 0, tries = 0;
-  while (k < N && tries < N * 12) {
-    tries++;
-    const x = Math.max(x0, 1720) + Math.random() * (Math.min(x1, x0 + 9000) - Math.max(x0, 1720) - 60), z = z0 + 300 + Math.random() * (z1 - z0 - 600);
-    if (x < PAD.x1 + 25 && Math.abs(z) < PAD.z + 25) continue;
-    if (x > 2300 && Math.abs(z - pipeZ(x)) < 40) continue;
-    if (x > 5500 && (Math.abs(z - riverZ(x)) < 60 || LAKES.some((lk) => Math.hypot(x - lk.x, (z - lk.z) * 1.25) < lk.r + 50))) continue;
-    if ([...STATIONS, DEPOT].some((s) => Math.abs(x - s.x) < (s.w || 200) / 2 + 40 && Math.abs(z - s.z) < (s.d || 150) / 2 + 40)) continue;
-    const y = heightAt(x, z);
-    const d = x - coastX(z);
-    if (d < 45 || y < 3 || y > 250 + Math.random() * 60) continue;
-    const sl = Math.abs(heightAt(x + 6, z) - y) + Math.abs(heightAt(x, z + 6) - y);
-    if (sl > 7) continue;
-    // Рощи: плотность по шуму, чтобы лес стоял массивами с полянами.
-    if (fbm(x / 220, z / 220, 3) < 0.42) continue;
-    const sc = 0.8 + Math.random() * 0.9;
-    forest.setMatrixAt(k, m4.compose(new THREE.Vector3(x, y - 0.3, z), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.random() * 6.28), s.set(sc, sc * (0.9 + Math.random() * 0.4), sc)));
-    forest.setColorAt(k, col.setHSL(0.3 + Math.random() * 0.06, 0.45, 0.17 + Math.random() * 0.1));
-    k++;
-  }
-  forest.count = k;
-  forest.userData.noCast = true;
-
+  // Смешанный лес, кустарник и скалы (квадратами, дальние не рисуются).
+  const accept = (x, z, y) => {
+    if (x < PAD.x1 + 25 && Math.abs(z) < PAD.z + 25) return false;
+    if (x > 2300 && Math.abs(z - pipeZ(x)) < 45) return false;
+    if (x > 5500 && (Math.abs(z - riverZ(x)) < 52 || LAKES.some((lk) => Math.hypot(x - lk.x, (z - lk.z) * 1.25) < lk.r + 28))) return false;
+    if ([...STATIONS, DEPOT].some((s) => Math.abs(x - s.x) < (s.w || 200) / 2 + 40 && Math.abs(z - s.z) < (s.d || 150) / 2 + 40)) return false;
+    return x - coastX(z) > 45 && y > 3;
+  };
+  const veg = makeVegetation({x0: Math.max(x0, 1720), x1: x1 - 40, z0: z0 + 250, z1: z1 - 250, heightAt, accept, ...density});
   const group = new THREE.Group();
-  group.add(terrain, forest);
+  group.add(terrain, veg.group);
+  group.userData.update = veg.update;
   // Вода реки и озёр в долине.
   if (x1 > 5600) {
     const waterMat = new THREE.MeshStandardMaterial({color: 0x2c6f93, roughness: 0.06, metalness: 0.35, transparent: true, opacity: 0.9});

@@ -37,10 +37,10 @@ const CHAPTERS = [
     text: 'Две нитки нефтепровода «Транснефти» идут над землёй на опорах с термостабилизаторами: через хребет, над рекой, сквозь тайгу.', more: 'transport'},
   {t: 186, short: 'НПС', kicker: 'Каждые 100–200 км', title: 'Промежуточные насосные станции',
     text: 'НПС-1, НПС-2 и НПС-3 снова поднимают давление, чтобы нефть шла дальше. Расстояния в полёте сжаты.', more: 'transport'},
-  {t: 206, short: 'Нефтебаза', kicker: '≈ 600 км от моря', title: 'Нефтебаза и налив в цистерны',
+  {t: 210, short: 'Нефтебаза', kicker: '≈ 600 км от моря', title: 'Нефтебаза и налив в цистерны',
     text: 'Нефть принимают в резервуары нефтебазы и наливают в железнодорожные цистерны. Дальше — нефтеперерабатывающий завод.', more: 'transport'},
 ];
-const F_END = 232, F_CARD = 226;
+const F_END = 236, F_CARD = 230;
 
 // Время рейса как функция времени облёта (кусочно-линейно).
 const VT = [[0, 0], [65.5, 0], [79.5, 15], [111.5, 44], [134.5, 70], [160, 106], [F_END, 106]];
@@ -161,16 +161,17 @@ export function mountFlight(root, sec, next) {
     {t: 164.5, p: [2390, 120, 360], l: [2900, 60, 470]},
     {t: 170, p: above(2980, 470, 30), l: above(3400, pipeZ(3400), 20)},
     {t: 176, p: above(4100, 520, 120), l: above(4800, pipeZ(4800), 40)},
-    {t: 181.5, p: above(5480, 520, 70), l: [5730, 62, 600]},
-    {t: 186.5, p: above(6430, 420, 80), l: above(STATIONS[0].x, STATIONS[0].z, 4)},
-    {t: 191.5, p: above(7450, -60, 160), l: [7750, 50, -1350]},
-    {t: 196.5, p: above(8780, 220, 60), l: above(STATIONS[1].x, STATIONS[1].z, 4)},
-    {t: 201, p: above(9760, 150, 80), l: [9840, 55, 305]},
-    {t: 206, p: above(11050, 300, 65), l: above(STATIONS[2].x, STATIONS[2].z, 4)},
-    {t: 211.5, p: above(13250, 330, 110), l: above(DEPOT.x, DEPOT.z, 0)},
-    {t: 216.5, p: above(13560, 815, 22), l: above(13760, DEPOT.z + 170, 6)},
-    {t: 221.5, p: above(13950, DEPOT.z + 150, 8), l: above(14120, DEPOT.z + 170, 5)},
-    {t: 226.5, p: above(14200, 1000, 140), l: above(13800, 650, 0)},
+    {t: 181.5, p: above(5566, 604, 16), l: above(5612, 548, 1.5)},
+    {t: 187, p: above(6380, 600, 40), l: above(6540, 650, 4)},
+    {t: 192.5, p: [7552, 113, -1112], l: [7590, 104, -1290]},
+    {t: 196.5, p: above(8050, -300, 150), l: above(8600, 400, 20)},
+    {t: 200.5, p: above(8630, 470, 26), l: above(8700, 600, 2)},
+    {t: 205, p: above(9760, 150, 80), l: [9840, 55, 305]},
+    {t: 210, p: above(11050, 300, 65), l: above(STATIONS[2].x, STATIONS[2].z, 4)},
+    {t: 215.5, p: above(13250, 330, 110), l: above(DEPOT.x, DEPOT.z, 0)},
+    {t: 220.5, p: above(13560, 815, 22), l: above(13760, DEPOT.z + 170, 6)},
+    {t: 225.5, p: above(13950, DEPOT.z + 150, 8), l: above(14120, DEPOT.z + 170, 5)},
+    {t: 230.5, p: above(14200, 1000, 140), l: above(13800, 650, 0)},
     {t: F_END, p: above(14300, 1200, 260), l: above(13700, 600, 0)},
   ];
   const at = (k, key) => (typeof k[key] === 'function' ? k[key]() : V(...k[key]));
@@ -213,10 +214,15 @@ export function mountFlight(root, sec, next) {
   tag('Магистральный нефтепровод «Транснефть»', [2600, 30, 470], 161, 176);
   tag('Опоры с термостабилизаторами', () => V(2990, heightAt(2990, pipeZ(2990)) + 8, pipeZ(2990)), 168, 175);
   tag('Переход через реку', [5730, 75, 600], 179, 185);
-  STATIONS.forEach((st, i) => tag(`${st.name} · ≈${st.km} км`, () => V(st.x, heightAt(st.x, st.z) + 26, st.z), [184, 194, 203][i], [190, 200, 210][i]));
-  tag('Озеро', [7750, 70, -1350], 189, 195);
-  tag('Нефтебаза · ≈600 км', () => V(DEPOT.x - 150, heightAt(DEPOT.x, DEPOT.z) + 40, DEPOT.z - 100), 209, 226);
-  tag('Эстакада налива в цистерны', () => V(13800, heightAt(13800, DEPOT.z + 170) + 16, DEPOT.z + 175), 213, 226);
+  STATIONS.forEach((st, i) => tag(`${st.name} · ≈${st.km} км`, () => V(st.x, heightAt(st.x, st.z) + 26, st.z), [185, 198.5, 207][i], [190, 203.5, 213][i]));
+  const fa = world.fauna.spots;
+  const onA = (st, dy) => () => V(st.a.position.x, st.a.position.y + dy, st.a.position.z);
+  tag('Бурый медведь', onA(fa.bear, 6), 178.5, 184.5);
+  tag('Лисы', onA(fa.fox, 3), 184.5, 189.5);
+  tag('Северный олень на скале', onA(fa.deerCliff, 7), 189.5, 195);
+  tag('Стадо северных оленей', onA(fa.herd, 7), 198, 203.5);
+  tag('Нефтебаза · ≈600 км', () => V(DEPOT.x - 150, heightAt(DEPOT.x, DEPOT.z) + 40, DEPOT.z - 100), 213, 230);
+  tag('Эстакада налива в цистерны', () => V(13800, heightAt(13800, DEPOT.z + 170) + 16, DEPOT.z + 175), 217, 230);
   const levelTags = world.targets.map((tk) => stage.addLabel({html: '', cls: 'level', at: V(tk.x, 34, tk.z), visible: () => F >= 143.5 && F < F_CARD + 2}));
 
   // ---------- шкала глав ----------
