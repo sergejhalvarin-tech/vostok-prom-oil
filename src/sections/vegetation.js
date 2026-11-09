@@ -136,7 +136,7 @@ export function makeVegetation(spec) {
         lo.visible = false;
         group.add(lo);
       }
-      meshes.push({im, lo, ch, near: type === 'shrub' ? 1300 : 1500, far: type === 'shrub' ? 0 : type === 'rock' ? 2600 : 3200});
+      meshes.push({im, lo, ch, near: type === 'shrub' ? 1100 : 1250, far: type === 'shrub' ? 0 : type === 'rock' ? 2400 : 3100});
     }
   }
   return {

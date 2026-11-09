@@ -5,9 +5,12 @@
 //  • нефтебаза: резервуары, обвязка, служебные здания, молниеотводы, железнодорожная эстакада налива
 //    с галереей, наливными устройствами, шкафами и составом цистерн.
 import * as THREE from 'three';
-import {heightAt, pipeZ, MAIN, STATIONS, DEPOT} from './landscape.js';
+import {heightAt, pipeZ, MAIN, STATIONS, DEPOT, RAIL_PTS} from './landscape.js';
 import {pipe, valve, buildPumpStation, buildLightningRod, routePoints, FARM_MAT as M} from './tankfarm.js';
 import {makeTank} from './terminal.js';
+import {FM, building, substation, powerLine, fireStation, filters, vessel, lightMast, roads, truck} from './facilities.js';
+import {RAIL_TOP, LOCO_LEN, CAR} from './train.js';
+const RAIL_X0 = RAIL_PTS[0][0];
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const mat = (color, o = {}) => new THREE.MeshStandardMaterial({color, roughness: 0.5, metalness: 0.2, ...o});
@@ -64,18 +67,18 @@ export function buildMainline(p) {
   const lines = [-3, 3].map((off) => axis.map((a, i) => a.clone().addScaledVector(sideAt(i), off)));
   const curves = lines.map((pts) => new THREE.CatmullRomCurve3(pts, false, 'centripetal'));
   for (const c of curves) {
-    const t = new THREE.Mesh(new THREE.TubeGeometry(c, axis.length * 2, 0.72, 14), PIPE);
+    const t = new THREE.Mesh(new THREE.TubeGeometry(c, axis.length, 0.72, 12), PIPE);
     t.userData.key = k;
     p.add(t);
   }
   // Опоры (инстансы): две сваи, ригель, ложементы, термостабилизаторы на сваях, швы изоляции.
   const n = axis.length;
-  const piles = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.34, 0.34, 1, 12), PILE, n * 2);
-  const collars = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.42, 0.42, 0.5, 12), BEAM, n * 2);
+  const piles = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.34, 0.34, 1, 8), PILE, n * 2);
+  const collars = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.42, 0.42, 0.5, 8), BEAM, n * 2);
   const beams = new THREE.InstancedMesh(new THREE.BoxGeometry(0.5, 0.5, 11), BEAM, n);
   const shoes = new THREE.InstancedMesh(new THREE.BoxGeometry(1.4, 0.5, 1.1), BEAM, n * 2);
   const thermo = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.06, 0.06, 3.6, 6), mat(0x8f979d, {metalness: 0.7}), n * 2);
-  const seams = new THREE.InstancedMesh(new THREE.TorusGeometry(0.74, 0.04, 4, 20), mat(0x8f979d, {metalness: 0.6}), n * 2);
+  const seams = new THREE.InstancedMesh(new THREE.TorusGeometry(0.74, 0.04, 3, 12), mat(0x8f979d, {metalness: 0.6}), n * 2);
   const markers = new THREE.InstancedMesh(new THREE.BoxGeometry(0.18, 2.2, 0.18), mat(0xd8262a), Math.ceil(n / 28));
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = V(1, 1, 1), up = V(0, 1, 0);
   let mi = 0;
@@ -108,37 +111,64 @@ export function buildMainline(p) {
 }
 
 // ======================================================================
-// Промежуточная НПС: насосный цех (разрез), камеры пуска-приёма средств очистки, молниеотводы, ограждение.
+// Промежуточная НПС (как на типовых станциях «Транснефти»):
+// магистральная насосная (разрез), узел подключения с задвижками, фильтры-грязеуловители, узел регулирования
+// давления, камеры пуска-приёма средств очистки и диагностики, ёмкость сбора утечек, подстанция с ЛЭП,
+// операторная, котельная, пожарные резервуары с насосной, дороги, мачты освещения, молниеотводы, ограждение.
 export function buildStations(p) {
   const out = [];
   for (const st of STATIONS) {
-    const y = heightAt(st.x, st.z);
-    const k = 'nps';
-    box(p, 190, 0.3, 120, M.concrete, st.x, y + 0.15, st.z + 6, k);
+    const y = heightAt(st.x, st.z), k = 'nps';
+    const L = (dx, dz) => [st.x + dx, st.z + dz];
+    const zp = pipeZ(st.x), yp = routeHeight(st.x), zl = zp - st.z;      // zl — магистраль в местных координатах
+    // Технологическая площадка под бетон, остальное — гравий.
+    box(p, 120, 0.25, 70, M.concrete, st.x, y + 0.13, st.z - 8, k).userData.noCast = true;
     buildPumpStation(p, {cx: st.x, cz: st.z, cy: y + 0.3, scale: 0.72, key: k});
-    // Отвод от магистрали к станции и обратно (нитка «−3» заходит, «+3» выходит).
-    const zp = pipeZ(st.x), yp = routeHeight(st.x);
-    for (const dx of [-40, 40]) {
-      pipe(p, [V(st.x + dx, yp, zp + 3), V(st.x + dx, yp, zp + 18), V(st.x + dx, y + 1.6, zp + 18), V(st.x + dx, y + 1.6, st.z - 12)], 0.55, M.white, k, {ground: y, R: 1.6});
-      valve(p, V(st.x + dx, y + 1.6, zp + 30), 'z', 0.55, k);
+    // Узел подключения: две нитки заходят на станцию через задвижки и выходят обратно.
+    for (const dx of [-46, 46]) {
+      pipe(p, [V(st.x + dx, yp, zp + 3), V(st.x + dx, yp, zp + 16), V(st.x + dx, y + 1.6, zp + 16), V(st.x + dx, y + 1.6, st.z - 14)], 0.55, M.white, k, {ground: y, R: 1.6});
+      valve(p, V(st.x + dx, y + 1.6, zp + 26), 'z', 0.55, k);
+      valve(p, V(st.x + dx, y + 1.6, zp + 36), 'z', 0.55, k);
     }
-    // Камеры пуска-приёма средств очистки и диагностики.
-    for (const dx of [-70, 70]) {
-      cyl(p, 0.9, 12, M.steel, st.x + dx, y + 1.6, st.z - 30, k, [Math.PI / 2, 0, 0]);
-      cyl(p, 1.2, 0.5, M.yellow, st.x + dx, y + 1.6, st.z - 36.2, k, [Math.PI / 2, 0, 0]);
-      for (const dz of [-34, -26]) box(p, 0.6, 1.2, 0.6, M.concrete, st.x + dx, y + 0.6, st.z + dz, k);
+    // Фильтры-грязеуловители на входе и узел регулирования давления на выходе.
+    filters(p, {x: st.x - 66, y, z: st.z - 22, key: k, n: 3});
+    pipe(p, [V(st.x - 46, y + 1.6, st.z - 22), V(st.x - 61.5, y + 1.6, st.z - 22)], 0.45, M.white, k, {ground: y});
+    building(p, {x: st.x + 68, y, z: st.z - 24, w: 18, d: 10, h: 6, key: k, floors: 1, wall: FM.wall2});
+    for (const dz of [-27, -21]) pipe(p, [V(st.x + 46, y + 1.4, st.z + dz), V(st.x + 59, y + 1.4, st.z + dz)], 0.4, M.white, k, {ground: y});
+    // Камеры пуска-приёма СОД: корпус, концевой затвор, байпас, площадка.
+    for (const [dx, dir] of [[-108, 1], [108, -1]]) {
+      const [tx, tz] = L(dx, zl + 22);
+      cyl(p, 1.0, 14, M.steel, tx, y + 1.8, tz, k, [0, 0, Math.PI / 2]);
+      cyl(p, 1.35, 0.8, M.yellow, tx - dir * 7.4, y + 1.8, tz, k, [0, 0, Math.PI / 2]);
+      box(p, 0.6, 0.6, 0.6, M.dark, tx - dir * 7.9, y + 1.8, tz, k);
+      cyl(p, 0.6, 3, M.steel, tx + dir * 8.5, y + 1.8, tz, k, [0, 0, Math.PI / 2]);
+      pipe(p, [V(tx + dir * 10, y + 1.8, tz), V(tx + dir * 14, y + 1.8, tz), V(tx + dir * 14, yp, tz), V(tx + dir * 14, yp, zp + 3)], 0.55, M.steel, k, {ground: y, supports: false});
+      for (const ox of [-4, 4]) box(p, 0.8, 1.2, 0.8, M.concrete, tx + ox, y + 0.6, tz, k);
+      box(p, 16, 0.15, 6, M.concrete, tx, y + 0.08, tz, k);
     }
-    // Служебный блок и молниеотводы.
-    box(p, 16, 4.5, 9, M.white, st.x - 70, y + 2.25, st.z + 32, k);
-    box(p, 16.6, 0.5, 9.6, M.blue, st.x - 70, y + 4.75, st.z + 32, k);
-    box(p, 16.1, 1.1, 9.1, M.glass, st.x - 70, y + 2.8, st.z + 32, k);
-    for (const [dx, dz] of [[-88, -50], [88, 60]]) buildLightningRod(p, st.x + dx, st.z + dz, 40, y);
-    // Ограждение.
-    for (const [a, b] of [[[-95, -54], [95, -54]], [[95, -54], [95, 66]], [[95, 66], [-95, 66]], [[-95, 66], [-95, -54]]]) {
-      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
-      const f = box(p, len, 2.2, 0.06, new THREE.MeshStandardMaterial({color: 0x9aa4ad, transparent: true, opacity: 0.35, depthWrite: false}), st.x + (a[0] + b[0]) / 2, y + 1.1, st.z + (a[1] + b[1]) / 2, undefined, Math.atan2(-(b[1] - a[1]), b[0] - a[0]));
+    // Ёмкость сбора утечек (подземная) и котельная.
+    vessel(p, {x: st.x + 28, y, z: st.z - 34, r: 1.5, len: 10, key: k, buried: true});
+    building(p, {x: st.x + 22, y, z: st.z + 62, w: 14, d: 10, h: 6, key: k, floors: 1, wall: FM.wall2, trim: FM.red});
+    cyl(p, 0.7, 24, M.grey, st.x + 30, y + 12, st.z + 62, k);
+    // Подстанция и ЛЭП.
+    substation(p, {x: st.x - 96, y, z: st.z + 48, key: k});
+    powerLine(p, [L(-96, 64), L(-96, 230), L(-70, 420), L(-30, 640)].map(([x, z], i) => [x, i ? heightAt(x, z) : y, z]), k);
+    // Операторная, пожарная насосная с резервуарами.
+    building(p, {x: st.x + 64, y, z: st.z + 52, w: 30, d: 14, h: 8, key: k, floors: 2});
+    fireStation(p, {x: st.x + 118, y, z: st.z + 34, key: k});
+    // Дороги, освещение, молниеотводы.
+    roads(p, y, [[st.x - 140, st.z + 82, st.x + 140, st.z + 82], [st.x - 140, st.z - 40, st.x - 140, st.z + 82], [st.x + 140, st.z - 40, st.x + 140, st.z + 82],
+      [st.x - 140, st.z - 40, st.x + 140, st.z - 40], [st.x, st.z + 82, st.x, st.z + 150]], k);
+    for (const [dx, dz] of [[-138, -36], [138, -36], [-138, 80], [138, 80], [0, 24]]) lightMast(p, st.x + dx, y, st.z + dz, 22, k);
+    for (const [dx, dz] of [[-70, 18], [70, -10]]) buildLightningRod(p, st.x + dx, st.z + dz, 40, y);
+    // Ограждение с воротами.
+    const fm = new THREE.MeshStandardMaterial({color: 0x9aa4ad, transparent: true, opacity: 0.38, depthWrite: false});
+    for (const [w, d, ox, oz] of [[290, 0.06, 0, -96], [140, 0.06, -75, 96], [140, 0.06, 75, 96], [0.06, 192, -145, 0], [0.06, 192, 145, 0]]) {
+      const f = box(p, w, 2.4, d, fm, st.x + ox, y + 1.2, st.z + oz);
       f.userData.dynamic = true;
     }
+    box(p, 8, 4, 6, M.white, st.x - 12, y + 2, st.z + 102, k);                                   // КПП
+    box(p, 8.6, 0.4, 6.6, M.blue, st.x - 12, y + 4.2, st.z + 102, k);
     out.push({...st, y});
   }
   return out;
@@ -151,18 +181,29 @@ function routeHeight(x) {
 }
 
 // ======================================================================
-// Нефтебаза с железнодорожной эстакадой налива.
+// Нефтебаза: резервуарный парк в обваловании, насосная налива, железнодорожная эстакада налива
+// под маршрут из 20 цистерн с электровозом, автоналив с бензовозами, подстанция, администрация,
+// пожарная станция, дороги, освещение, молниеотводы, ограждение.
+const RTZ = DEPOT.z + 170;
+export const DEPOT_RACK = (() => {
+  const X0 = DEPOT.x - 262, X1 = X0 + 20 * CAR + 8;
+  return {X0, X1, TZ: RTZ, sHead: X1 + 2 + LOCO_LEN - RAIL_X0};
+})();
 export function buildDepot(p) {
   const {x: cx, z: cz} = DEPOT;
-  const y = heightAt(cx, cz), G1 = y + 0.05, PY = y + 1.5, k = 'depot', kr = 'rail';
-  box(p, DEPOT.w - 40, 0.12, DEPOT.d - 40, mat(0x9a968b, {roughness: 1}), cx, y + 0.06, cz, k);
-  // Резервуары: четыре больших и два малых, в обваловании.
+  const y = heightAt(cx, cz), PY = y + 1.5, k = 'depot', kr = 'rail';
+  box(p, DEPOT.w - 40, 0.12, DEPOT.d - 40, mat(0x9a968b, {roughness: 1}), cx, y + 0.06, cz, k).userData.noCast = true;
+  // Резервуары: четыре больших и два малых, в обваловании; лестницы, пеногенераторы.
   const tanks = [[-250, -150, 28], [-170, -150, 28], [-250, -60, 28], [-170, -60, 28], [-80, -200, 14], [-80, -160, 14]];
   for (const [dx, dz, r] of tanks) {
     const t = makeTank(r, r > 20 ? 17 : 12, 'dome', 0.5, false);
     t.group.position.set(cx + dx, y + 0.4, cz + dz);
     t.group.traverse((o) => (o.userData.key = k));
     p.add(t.group);
+    for (let i = 0; i < 4; i++) {
+      const ang = i * Math.PI / 2 + 0.4;
+      box(p, 0.8, 1.2, 0.8, M.red, cx + dx + Math.cos(ang) * (r + 0.6), y + (r > 20 ? 16 : 11), cz + dz + Math.sin(ang) * (r + 0.6), k);
+    }
   }
   for (const [x0, x1, z0, z1] of [[-290, -130, -190, -20], [-100, -60, -225, -135]]) {
     for (const [a, b] of [[[x0, z0], [x1, z0]], [[x1, z0], [x1, z1]], [[x1, z1], [x0, z1]], [[x0, z1], [x0, z0]]]) {
@@ -174,38 +215,63 @@ export function buildDepot(p) {
   const inlet = V(MAIN.x1, routeHeight(MAIN.x1), pipeZ(MAIN.x1) - 3);
   const toTank = [inlet, V(MAIN.x1 + 20, inlet.y, inlet.z), V(MAIN.x1 + 20, PY, inlet.z), V(MAIN.x1 + 20, PY, cz - 105), V(cx - 250, PY, cz - 105), V(cx - 250, PY, cz - 122)];
   pipe(p, toTank, 0.6, M.oilGlass, k, {ground: y, R: 1.8});
-  for (const dx of [-170]) pipe(p, [V(cx - 250, PY, cz - 105), V(cx + dx, PY, cz - 105), V(cx + dx, PY, cz - 122)], 0.5, M.steel, k, {ground: y});
+  pipe(p, [V(cx - 250, PY, cz - 105), V(cx - 170, PY, cz - 105), V(cx - 170, PY, cz - 122)], 0.5, M.steel, k, {ground: y});
   pipe(p, [V(cx - 250, PY, cz - 105), V(cx - 250, PY, cz - 88)], 0.5, M.steel, k, {ground: y});
-  // Насосная налива и служебные здания.
-  for (const [dx, dz, w, d, h] of [[-20, -110, 30, 14, 7], [60, -180, 40, 16, 9], [140, -180, 24, 14, 6], [200, -60, 30, 18, 8]]) {
-    box(p, w, h, d, M.white, cx + dx, y + h / 2, cz + dz, k);
-    box(p, w + 0.6, 0.6, d + 0.6, M.blue, cx + dx, y + h + 0.3, cz + dz, k);
-    box(p, w + 0.05, 1.2, d + 0.05, M.glass, cx + dx, y + h * 0.6, cz + dz, k);
+  for (const dx of [-250, -170]) valve(p, V(cx + dx, PY, cz - 112), 'z', 0.5, k);
+  // Насосная налива, операторная, лаборатория, администрация.
+  building(p, {x: cx - 20, y, z: cz - 110, w: 30, d: 14, h: 7, key: k, floors: 1});
+  for (let i = 0; i < 4; i++) cyl(p, 0.55, 3.2, M.blue, cx - 30 + i * 6.5, y + 1.6, cz - 96, k);
+  building(p, {x: cx + 60, y, z: cz - 180, w: 40, d: 16, h: 9, key: k, floors: 2, wall: FM.wall2});
+  building(p, {x: cx + 140, y, z: cz - 180, w: 24, d: 14, h: 6, key: k, floors: 1});
+  building(p, {x: cx + 270, y, z: cz + 30, w: 46, d: 16, h: 13, key: k, floors: 3});
+  substation(p, {x: cx + 120, y, z: cz + 70, key: k});
+  powerLine(p, [[cx + 120, cz + 86], [cx + 160, cz - 330], [cx + 210, cz - 720]].map(([x, z], i) => [x, i ? heightAt(x, z) : y, z]), k);
+  fireStation(p, {x: cx + 320, y, z: cz - 220, key: k, tanks: 3});
+  // Автоналив: навес на три поста, наливные стояки, бензовозы.
+  {
+    const ax = cx + 20, az = cz + 40;
+    box(p, 34, 0.5, 20, mat(0x2f6fc0), ax, y + 7.2, az, k);
+    box(p, 34.4, 0.8, 20.4, M.white, ax, y + 6.6, az, k);
+    for (const [ox, oz] of [[-15, -8], [15, -8], [-15, 8], [15, 8], [0, -8], [0, 8]]) box(p, 0.5, 6.4, 0.5, M.white, ax + ox, y + 3.2, az + oz, k);
+    for (const ox of [-10, 0, 10]) {
+      box(p, 1.2, 3.6, 1.2, M.grey, ax + ox + 3, y + 1.8, az, k);
+      pipe(p, [V(ax + ox + 3, y + 3.6, az), V(ax + ox + 3, y + 4.6, az), V(ax + ox + 0.6, y + 4.6, az)], 0.12, M.steel, k, {supports: false, R: 0.4});
+    }
+    truck(p, ax - 10, y, az, 0, k);
+    truck(p, ax + 10, y, az, 0, k, 0xf3c400);
+    for (let i = 0; i < 4; i++) truck(p, cx + 340, y, cz + 110 + i * 9, Math.PI / 2, k, i % 2 ? 0xe8eef2 : 0xf3c400);
+    pipe(p, [V(cx - 20, PY, cz - 103), V(cx - 20, PY, az - 14), V(ax + 13, PY, az - 14), V(ax + 13, PY, az)], 0.3, M.steel, k, {ground: y});
   }
-  // Железнодорожная эстакада налива: путь, галерея на красных опорах, наливные устройства, шкафы.
-  const TZ = cz + 170, X0 = cx - 260, X1 = cx + 270;
-  const railFrom = cx - 900, railTo = cx + 900;
-  box(p, railTo - railFrom, 0.5, 6, mat(0x9b8f7c, {roughness: 1}), cx, y + 0.25, TZ, kr);
-  box(p, railTo - railFrom, 0.5, 6, mat(0x9b8f7c, {roughness: 1}), cx, y + 0.25, TZ + 14, kr);
-  for (const tz of [TZ, TZ + 14]) {
-    const sl = new THREE.InstancedMesh(new THREE.BoxGeometry(0.28, 0.18, 2.7), mat(0x6a5a46), Math.round((railTo - railFrom) / 0.7));
-    for (let i = 0; i < sl.count; i++) sl.setMatrixAt(i, new THREE.Matrix4().makeTranslation(railFrom + i * 0.7, y + 0.55, tz));
+  roads(p, y, [[cx - 390, cz + 120, cx + 390, cz + 120], [cx - 40, cz - 280, cx - 40, cz + 120], [cx + 390, cz - 280, cx + 390, cz + 120], [cx - 40, cz - 280, cx + 390, cz - 280],
+    [cx + 20, cz + 15, cx + 20, cz + 65], [cx + 200, cz + 120, cx + 200, cz + 340]], k);
+  for (const [dx, dz] of [[-300, 110], [-100, 110], [100, 110], [300, 110], [-40, -120], [380, -140], [200, -260]]) lightMast(p, cx + dx, y, cz + dz, 26, k);
+  // Железнодорожные пути налива: основной (под маршрут) и отстойный с порожними цистернами.
+  const TZ = RTZ, X0 = DEPOT_RACK.X0, X1 = DEPOT_RACK.X1;
+  const railFrom = cx - 900, railTo = RAIL_X0 + 720;
+  for (const [tz, x1] of [[TZ, railTo], [TZ + 14, cx + 120]]) {
+    box(p, x1 - railFrom, 0.6, 6, mat(0x8d8478, {roughness: 1}), (railFrom + x1) / 2, y + 0.3, tz, kr).userData.noCast = true;
+    const sl = new THREE.InstancedMesh(new THREE.BoxGeometry(0.27, 0.17, 2.75), mat(0x6d6a64), Math.round((x1 - railFrom) / 0.9));
+    for (let i = 0; i < sl.count; i++) sl.setMatrixAt(i, new THREE.Matrix4().makeTranslation(railFrom + i * 0.9, y + RAIL_TOP - 0.26, tz));
     sl.userData.noCast = true;
     p.add(sl);
-    for (const dz of [-0.76, 0.76]) box(p, railTo - railFrom, 0.18, 0.12, M.steel, cx, y + 0.73, tz + dz, kr);
+    for (const dz of [-0.75, 0.75]) box(p, x1 - railFrom, 0.18, 0.08, M.steel, (railFrom + x1) / 2, y + RAIL_TOP - 0.09, tz + dz, kr);
   }
+  box(p, 1.2, 1.4, 3.4, M.red, cx + 122, y + 1.2, TZ + 14, kr);                                     // упор отстойного пути
+  // Галерея на опорах с лестницами и навесом.
   const deckY = y + 5.4, GZ = TZ + 5.2;
   box(p, X1 - X0, 0.2, 2.6, mat(0x9aa2a8, {metalness: 0.5}), (X0 + X1) / 2, deckY, GZ, kr);
+  box(p, X1 - X0 + 4, 0.25, 9, mat(0x2f6fc0), (X0 + X1) / 2, deckY + 4.4, GZ + 1.5, kr);
   for (let x = X0; x <= X1; x += 12) {
     for (const dz of [-1.1, 1.1]) box(p, 0.35, deckY - y, 0.35, M.red, x, y + (deckY - y) / 2, GZ + dz, kr);
     box(p, 0.3, 0.3, 2.6, M.red, x, deckY - 1.6, GZ, kr);
   }
+  for (let x = X0; x <= X1; x += 24) box(p, 0.3, 4.4, 0.3, M.steel, x, deckY + 2.2, GZ + 4.5, kr);
   for (const dz of [-1.25, 1.25]) {
     box(p, X1 - X0, 0.07, 0.07, M.steel, (X0 + X1) / 2, deckY + 1.1, GZ + dz, kr);
     box(p, X1 - X0, 0.05, 0.05, M.steel, (X0 + X1) / 2, deckY + 0.6, GZ + dz, kr);
     for (let x = X0; x <= X1; x += 2) box(p, 0.05, 1.1, 0.05, M.steel, x, deckY + 0.55, GZ + dz, kr);
   }
-  for (const sx of [X0 - 1, X1 + 1]) {                                                            // лестницы
+  for (const sx of [X0 - 1, X1 + 1]) {
     const dir = sx < cx ? -1 : 1;
     const a = V(sx, deckY, GZ), b = V(sx + dir * 7, y + 0.2, GZ);
     const st = new THREE.Mesh(new THREE.BoxGeometry(1, 0.2, 1.6), M.steel);
@@ -215,73 +281,34 @@ export function buildDepot(p) {
     st.userData.key = kr;
     p.add(st);
   }
-  // Коллектор налива под галереей и наливные устройства у каждой цистерны.
+  // Коллектор налива под галереей и наливные устройства над люком каждой цистерны.
   const fromTank = [V(cx - 170, PY, cz - 60), V(cx - 120, PY, cz - 60), V(cx - 120, PY, GZ + 3.5), V(X0, PY, GZ + 3.5), V(X0, deckY - 1, GZ + 3.5), V(X1, deckY - 1, GZ + 3.5)];
   pipe(p, fromTank, 0.45, M.oilGlass, kr, {ground: y, R: 1.4});
   const arms = [];
   for (let i = 0; i < 20; i++) {
-    const x = X0 + 16 + i * 13.2;
-    const top = V(x, deckY + 3.6, GZ + 0.6);
+    const x = DEPOT_RACK.sHead + RAIL_X0 - LOCO_LEN - 0.3 - (i + 0.5) * CAR;
+    const hatch = y + RAIL_TOP + 4.75;
+    const top = V(x, deckY + 3.4, GZ + 0.6);
     pipe(p, [V(x, deckY - 1, GZ + 3.5), V(x, deckY - 1, GZ + 0.6), top], 0.2, M.red, kr, {supports: false, R: 0.6});
-    pipe(p, [top, V(x, deckY + 3.6, TZ), V(x, y + 4.3, TZ)], 0.18, mat(0x1d5fd0), kr, {supports: false, R: 0.8});
-    box(p, 0.6, 0.6, 0.6, M.yellow, x, deckY + 3.6, GZ + 0.6, kr);
-    box(p, 1.4, 1.6, 0.9, mat(0x2a9fd8), x + 4, y + 1.1, TZ - 4.2, kr);                            // шкаф управления
-    arms.push(V(x, y + 4.3, TZ));
+    pipe(p, [top, V(x, deckY + 3.4, TZ), V(x, hatch, TZ)], 0.17, mat(0x1d5fd0), kr, {supports: false, R: 0.8});
+    box(p, 0.6, 0.6, 0.6, M.yellow, x, deckY + 3.4, GZ + 0.6, kr);
+    box(p, 1.4, 1.6, 0.9, mat(0x2a9fd8), x + 4, y + 1.1, TZ + 4.4, kr);                              // шкаф управления
+    box(p, 1.6, 0.12, 2.4, M.yellow, x, deckY + 0.1, GZ - 2.4, kr);                                 // откидной мостик
+    arms.push(V(x, hatch, TZ));
   }
-  // Состав цистерн: зелёные котлы со светлыми днищами, тележки.
-  const green = mat(0x3a6a22, {roughness: 0.5}), endM = mat(0xe8ece6), wheel = mat(0x23262a);
-  const car = (x, tz) => {
-    const g = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 10.4, 24), green);
-    body.rotation.z = Math.PI / 2;
-    g.add(body);
-    for (const s of [-1, 1]) {
-      const cap = new THREE.Mesh(new THREE.SphereGeometry(1.5, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2), endM);
-      cap.rotation.z = -s * Math.PI / 2;
-      cap.scale.set(1, 0.3, 1);
-      cap.position.x = s * 5.2;
-      g.add(cap);
-      const dot = new THREE.Mesh(new THREE.CircleGeometry(0.7, 20), green);
-      dot.position.x = s * 5.66;
-      dot.rotation.y = s * Math.PI / 2;
-      g.add(dot);
-    }
-    const dome = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.6, 0.8, 14), green);
-    dome.position.y = 1.7;
-    g.add(dome);
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(12, 0.35, 2.4), mat(0x2f7a2a));
-    frame.position.y = -1.55;
-    g.add(frame);
-    for (const s of [-4, 4]) for (const wz of [-0.76, 0.76]) for (const wx of [-0.9, 0.9]) {
-      const w = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.15, 12), wheel);
-      w.rotation.x = Math.PI / 2;
-      w.position.set(s + wx, -2.05, wz);
-      g.add(w);
-    }
-    g.position.set(x, y + 3.25, tz);
-    g.traverse((o) => (o.userData.key = kr));
-    p.add(g);
-  };
-  for (let i = 0; i < 20; i++) car(X0 + 16 + i * 13.2, TZ);
-  for (let i = 0; i < 14; i++) car(X0 + 60 + i * 13.2, TZ + 14);
-  // Тепловоз.
-  const loco = new THREE.Group();
-  box(loco, 18, 3.4, 3, mat(0xc8322a), 0, 1.7, 0);
-  box(loco, 4, 1.4, 3.05, mat(0xe8e2d0), -6, 3.2, 0);
-  box(loco, 18.4, 0.6, 3.2, mat(0x23262a), 0, -0.1, 0);
-  loco.position.set(X0 + 16 + 20 * 13.2 + 3, y + 1.4, TZ);
-  loco.traverse((o) => (o.userData.key = kr));
-  p.add(loco);
   // Молниеотводы и ограждение.
-  for (const [dx, dz] of [[-300, -230], [-120, -230], [-300, 20], [40, 60], [260, 120], [260, -230]]) buildLightningRod(p, cx + dx, cz + dz, 44, y);
+  for (const [dx, dz] of [[-300, -230], [-120, -230], [-300, 20], [40, -40], [260, 120], [260, -230]]) buildLightningRod(p, cx + dx, cz + dz, 44, y);
   const hw = DEPOT.w / 2 - 15, hd = DEPOT.d / 2 - 15;
-  for (const [a, b] of [[[-hw, -hd], [hw, -hd]], [[hw, -hd], [hw, hd]], [[hw, hd], [-hw, hd]], [[-hw, hd], [-hw, -hd]]]) {
+  for (const [a, b] of [[[-hw, -hd], [hw, -hd]], [[hw, -hd], [hw, 150]], [[hw, 200], [hw, hd]], [[hw, hd], [-hw, hd]], [[-hw, hd], [-hw, -hd]]]) {
     const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
     const f = box(p, len, 2.4, 0.06, new THREE.MeshStandardMaterial({color: 0x9aa4ad, transparent: true, opacity: 0.35, depthWrite: false}), cx + (a[0] + b[0]) / 2, y + 1.2, cz + (a[1] + b[1]) / 2, undefined, Math.atan2(-(b[1] - a[1]), b[0] - a[0]));
     f.userData.dynamic = true;
   }
-  // Путь нефти для анимации: магистраль → резервуар → налив в цистерну.
+  // Путь нефти: магистраль → резервуар → налив в цистерну.
   const pick = arms[6] || arms[0];
-  const flow = [...routePoints(toTank, 1.8), V(cx - 250, PY, cz - 60), ...routePoints(fromTank.slice(0, 5), 1.4), V(pick.x, deckY - 1, GZ + 3.5), V(pick.x, deckY - 1, GZ + 0.6), V(pick.x, deckY + 3.6, GZ + 0.6), V(pick.x, deckY + 3.6, TZ), pick];
-  return {flow, rackZ: TZ, y};
+  const flow = [...routePoints(toTank, 1.8), V(cx - 250, PY, cz - 60), ...routePoints(fromTank.slice(0, 5), 1.4), V(pick.x, deckY - 1, GZ + 3.5), V(pick.x, deckY - 1, GZ + 0.6), V(pick.x, deckY + 3.4, GZ + 0.6), V(pick.x, deckY + 3.4, TZ), pick];
+  // Порожние цистерны на отстойном пути.
+  const empties = [];
+  for (let i = 0; i < 14; i++) empties.push({x: cx - 200 + i * CAR, y: y + RAIL_TOP + 0.08, z: TZ + 14, yaw: Math.PI / 2});
+  return {flow, rackZ: TZ, y, empties};
 }

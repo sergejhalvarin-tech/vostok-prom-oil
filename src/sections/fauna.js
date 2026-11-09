@@ -233,10 +233,17 @@ export function makeFauna() {
     group, spots,
     update(cam) {
       const dt = Math.min(clock.getDelta(), 0.1);
-      group.visible = cam.x > 4500;
+      group.visible = cam.x > 4500 && cam.x < 12500;
       if (!group.visible) return;
       tt += dt;
-      for (const st of actors) if (Math.hypot(st.x - cam.x, st.z - cam.z) < 1600) step(st, dt);
+      for (const st of actors) {
+        const near = Math.hypot(st.x - cam.x, st.z - cam.z) < 1100;
+        st.a.visible = near;
+        if (near) step(st, dt);
+      }
+      const fl = Math.hypot(flock.x - cam.x, flock.z - cam.z) < 2400;
+      for (const o of birds) o.b.visible = fl;
+      if (!fl) return;
       for (const [i, o] of birds.entries()) {
         const ang = tt * 0.12 + o.ph, r = 220 + o.r;
         const x = flock.x + Math.cos(ang) * r, z = flock.z + Math.sin(ang) * r * 0.7, y = flock.y + o.dy + Math.sin(tt * 0.5 + i) * 4;

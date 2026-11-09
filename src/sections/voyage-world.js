@@ -12,6 +12,12 @@ import {mergeStatic} from '../kit/merge.js';
 import {buildMainline, buildStations, buildDepot} from './pipeline.js';
 import {makeCoast} from './landscape.js';
 import {makeFauna} from './fauna.js';
+import {buildRailway} from './railway.js';
+import {buildRefinery} from './refinery.js';
+import {makeTrain} from './train.js';
+import {DEPOT_RACK} from './pipeline.js';
+import {getRail, STATIONS, DEPOT, REFINERY, MAIN} from './landscape.js';
+const MAIN_END = MAIN.x1;
 
 // Шкала времени рейса, с.
 export const T = {disc: [0, 4], back: [4, 10], turn: [10, 15], sea: [15, 52], push: [52, 57], moor: [57, 63], arms: [63, 70], unload: [70, 106]};
@@ -199,15 +205,48 @@ export function buildVoyageWorld(stage) {
   stage.scene.add(oil.mesh);
   // Магистраль, промежуточные НПС и нефтебаза — за горами, отдельной группой (видны и с моря на горизонте).
   const inland = new THREE.Group();
-  const mainline = buildMainline(inland);
-  const stations = buildStations(inland);
-  const depot = buildDepot(inland);
-  mergeStatic(inland);
+  const lineG = new THREE.Group(), stG = new THREE.Group(), depG = new THREE.Group();
+  const mainline = buildMainline(lineG);
+  const stations = buildStations(stG);
+  const depot = buildDepot(depG);
+  // Каждую НПС — в свою группу (по положению), чтобы далёкие не рисовались.
+  const stGroups = STATIONS.map(() => new THREE.Group());
+  for (const o of [...stG.children]) {
+    o.updateMatrixWorld(true);
+    const wp = new THREE.Vector3().setFromMatrixPosition(o.matrixWorld);
+    let bi = 0, bd = 1e9;
+    STATIONS.forEach((st, i) => { const d = Math.abs(wp.x - st.x); if (d < bd) { bd = d; bi = i; } });
+    stGroups[bi].add(o);
+  }
+  for (const g of [lineG, depG, ...stGroups]) { mergeStatic(g); inland.add(g); }
   stage.scene.add(inland);
+  const culls = [
+    ...stGroups.map((g, i) => ({g, x: STATIONS[i].x, z: STATIONS[i].z, r: 400})),
+    {g: depG, x: DEPOT.x, z: DEPOT.z, r: 900},
+  ];
   const valley = makeCoast({x0: 6150, x1: 14900, seg: 330, density: {conifers: 16000, broadleaf: 9000, shrubs: 7000, rocks: 3000}});
   stage.scene.add(valley);                                                            // долина за хребтом
   const fauna = makeFauna();
   stage.scene.add(fauna.group);
+  // Железная дорога к НПЗ: восточная долина с каньоном и хребтом, путь, мосты, терминал завода, поезд.
+  const eastLand = makeCoast({x0: 14900, x1: 18900, seg: 151, density: {conifers: 9500, broadleaf: 5500, shrubs: 4000, rocks: 2600}});
+  stage.scene.add(eastLand);
+  const rail = new THREE.Group(), refG = new THREE.Group();
+  buildRailway(rail, {sFrom: 720});
+  const S_STOP = getRail().len - 62;
+  const refinery = buildRefinery(refG, {sStop: S_STOP});
+  mergeStatic(rail);
+  mergeStatic(refG);
+  rail.add(refG);
+  culls.push({g: refG, x: REFINERY.x, z: REFINERY.z, r: 800});
+  stage.scene.add(rail);
+  stage.registerTree(rail);
+  const train = makeTrain(stage, {cars: 20, extra: depot.empties});
+  stage.scene.add(train.group);
+  train.place(DEPOT_RACK.sHead);
+  // На НПЗ: из цистерн в коллектор, в насосную и в резервуар (пока состав стоит у эстакады).
+  const refFlow = makeBeads([new THREE.CatmullRomCurve3(refinery.flow, false, 'centripetal')], 260, 0.3, OIL, 24);
+  refG.add(refFlow.mesh);
   stage.registerTree(inland);
   // Раздача: из резервуара по коллектору и эстакаде в насосную станцию и в магистральный нефтепровод.
   const outflow = makeBeads([new THREE.CatmullRomCurve3([...term.dispatchPath, ...mainline.curves[0].getSpacedPoints(400).slice(0, 6)], false, 'centripetal')], 260, 0.3, OIL, 22);
@@ -290,15 +329,31 @@ export function buildVoyageWorld(stage) {
     return info;
   }
 
-  const load = (onProgress) => Promise.all([loadPlatform(stage, onProgress), loadTanker(stage, tanker)]);
+  let models = null;
+  const load = (onProgress) => Promise.all([loadPlatform(stage, onProgress), loadTanker(stage, tanker)]).then((m) => (models = m));
 
   // Берег прячем, пока камера у платформы: с шельфа до суши около 60 км, а в сцене — меньше двух.
   const cullShore = (camera) => {
-    term.group.visible = mooring.group.visible = tugs[0].visible = tugs[1].visible = camera.position.x > 650;
+    const cx = camera.position.x, cz = camera.position.z;
+    term.group.visible = mooring.group.visible = tugs[0].visible = tugs[1].visible = cx > 650 && cx < 6500;
+    term.mountains.visible = cx < 10000;
+    if (models) { models[0].visible = cx < 4500; tanker.visible = cx < 6500; }
+    oil.mesh.visible = cx < 6500;
+    lineG.visible = cx < MAIN_END + 3600;
+    train.setExtras(Math.hypot(DEPOT.x - cx, DEPOT.z - cz) < 3200);
+    // Далёкие площадки (за туманом) не рисуются.
+    for (const c of culls) c.g.visible = Math.hypot(c.x - cx, c.z - cz) < 3600 + c.r;
     term.mountains.userData.update(camera.position);
     valley.userData.update(camera.position);
     fauna.update(camera.position);
+    const east = camera.position.x > 9000;
+    rail.visible = eastLand.visible = train.group.visible = east;
+    if (east) eastLand.userData.update(camera.position);
   };
+  // Поезд: голова на пути s; у НПЗ — слив нефти.
+  let trainS = DEPOT_RACK.sHead;
+  const setTrain = (s) => { if (s !== trainS || !train.placed) { trainS = s; train.place(s); train.placed = true; } refFlow.mesh.visible = s >= S_STOP - 0.5; };
+  stage.onFrame((dt) => { refinery.update(performance.now() / 1000); if (refFlow.mesh.visible) refFlow.update(dt); });
 
-  return {tanker, plan, ice, targets, update, load, cullShore, stations, depot, fauna, resetWake: () => wake.reset()};
+  return {tanker, plan, ice, targets, update, load, cullShore, stations, depot, fauna, train, setTrain, S_STOP, S_LOAD: DEPOT_RACK.sHead, resetWake: () => wake.reset()};
 }

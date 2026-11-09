@@ -111,7 +111,9 @@ export const CREDITS = `
   © <a href="https://sketchfab.com/lightproduction" target="_blank" rel="noopener">Lightproduction</a>;
   <a href="https://sketchfab.com/3d-models/tanker-ship-96ebf61af42b4062ae98a6ad848e1a25" target="_blank" rel="noopener">«Tanker Ship»</a>,
   © <a href="https://sketchfab.com/KoreanNavy" target="_blank" rel="noopener">KoreanNavy</a>;
-  обе по лицензии <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.`;
+  <a href="https://sketchfab.com/3d-models/447638ae939d4be98408324b17e3d3bf" target="_blank" rel="noopener">«Вагон цистерна для поезда»</a>,
+  © <a href="https://sketchfab.com/mamontnikita62" target="_blank" rel="noopener">mamont nikita</a>;
+  все по лицензии <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.`;
 
 export function mountShelf(root, sec, next) {
   let sectionOn = false;

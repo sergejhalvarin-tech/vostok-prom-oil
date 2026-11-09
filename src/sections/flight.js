@@ -7,7 +7,8 @@ import {buildVoyageWorld} from './voyage-world.js';
 import {makeSection} from './geology.js';
 import {makeSeaLife} from './sealife.js';
 import {makeNarration} from './narration.js';
-import {heightAt, pipeZ, STATIONS, DEPOT} from './landscape.js';
+import {heightAt, pipeZ, STATIONS, DEPOT, getRail, railAt} from './landscape.js';
+import {DEPOT_RACK} from './pipeline.js';
 
 // Точка над рельефом: [x, высота земли + dy, z].
 const above = (x, z, dy) => [x, heightAt(x, z) + dy, z];
@@ -38,9 +39,37 @@ const CHAPTERS = [
   {t: 186, short: 'НПС', kicker: 'Каждые 100–200 км', title: 'Промежуточные насосные станции',
     text: 'НПС-1, НПС-2 и НПС-3 снова поднимают давление, чтобы нефть шла дальше. Расстояния в полёте сжаты.', more: 'transport'},
   {t: 210, short: 'Нефтебаза', kicker: '≈ 600 км от моря', title: 'Нефтебаза и налив в цистерны',
-    text: 'Нефть принимают в резервуары нефтебазы и наливают в железнодорожные цистерны. Дальше — нефтеперерабатывающий завод.', more: 'transport'},
+    text: 'Нефть принимают в резервуары нефтебазы и через эстакаду наливают в железнодорожные цистерны — по одной на каждое наливное устройство.', more: 'transport'},
+  {t: 228, short: 'Поезд', kicker: 'Железная дорога', title: 'Маршрутный поезд с нефтью',
+    text: 'Электровоз 2ЭС6 «Синара» ведёт состав из двадцати цистерн по электрифицированной дороге: через реку, над каньоном по арочному виадуку, вдоль горного озера.', more: 'transport'},
+  {t: 279, short: 'НПЗ', kicker: 'Конечная точка', title: 'Терминал приёмки сырья НПЗ',
+    text: 'Состав встаёт у сливной эстакады. Нефть через нижний слив уходит в коллектор, приёмная насосная качает её в резервуары, а оттуда — на установки завода.', more: 'transport'},
 ];
-const F_END = 236, F_CARD = 230;
+const F_END = 303, F_CARD = 297;
+
+// Поезд: путь головы состава как функция времени облёта (монотонный кубический сплайн).
+const S_LOAD = DEPOT_RACK.sHead, S_STOP = getRail().len - 62;
+const TS = [[0, S_LOAD], [229, S_LOAD], [234, S_LOAD + 50], [240, S_LOAD + 300], [246, 1290], [252, 1830], [258, 2350], [264, 2950], [270, 3600],
+  [276, 4230], [282, 4720], [287, S_STOP - 22], [291, S_STOP], [9999, S_STOP]];
+const trainS = (() => {
+  const n = TS.length, d = [], m = [];
+  for (let i = 0; i < n - 1; i++) d.push((TS[i + 1][1] - TS[i][1]) / (TS[i + 1][0] - TS[i][0]));
+  for (let i = 0; i < n; i++) m.push(i === 0 ? d[0] : i === n - 1 ? d[n - 2] : d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2);
+  for (let i = 0; i < n - 1; i++) {
+    if (d[i] === 0) { m[i] = m[i + 1] = 0; continue; }
+    const a = m[i] / d[i], b = m[i + 1] / d[i], h = a * a + b * b;
+    if (h > 9) { const t = 3 / Math.sqrt(h); m[i] = t * a * d[i]; m[i + 1] = t * b * d[i]; }
+  }
+  return (f) => {
+    let i = 0;
+    while (i < n - 2 && f > TS[i + 1][0]) i++;
+    const [x0, y0] = TS[i], [x1, y1] = TS[i + 1], h = x1 - x0, t = Math.min(1, Math.max(0, (f - x0) / h));
+    const t2 = t * t, t3 = t2 * t;
+    return (2 * t3 - 3 * t2 + 1) * y0 + (t3 - 2 * t2 + t) * h * m[i] + (-2 * t3 + 3 * t2) * y1 + (t3 - t2) * h * m[i + 1];
+  };
+})();
+// Точка у пути: s — по оси, d — поперёк (м), h — над полотном.
+const rp = (s, d = 0, h = 0) => { const a = railAt(s); return [a.x + a.tz * d, a.y + h, a.z - a.tx * d]; };
 
 // Время рейса как функция времени облёта (кусочно-линейно).
 const VT = [[0, 0], [65.5, 0], [79.5, 15], [111.5, 44], [134.5, 70], [160, 106], [F_END, 106]];
@@ -80,7 +109,7 @@ export function mountFlight(root, sec, next) {
           <div class="fl-intro-in">
             <div class="fl-brand"><span class="brand-drop"></span>ВОСТОК<b>ПРОМ</b>ОЙЛ</div>
             <h1>Путь нефти</h1>
-            <p>Облёт с борта вертолёта: от арктической платформы на шельфе до резервуаров берегового терминала. Около двух с половиной минут.</p>
+            <p>Облёт с борта вертолёта: от арктической платформы на шельфе до нефтеперерабатывающего завода: море, терминал, магистраль, нефтебаза и железная дорога. Около пяти минут.</p>
             <div class="fl-start">
               <button class="fl-go" id="bGo" disabled><span id="goText">Загрузка 0%</span></button>
               <label class="fl-snd"><input type="checkbox" id="cSound" checked> с озвучкой диктора</label>
@@ -91,7 +120,7 @@ export function mountFlight(root, sec, next) {
         </div>
         <div class="fl-end" id="end">
           <div class="fl-end-in">
-            <div class="fl-kick">Нефть в резервуарах</div>
+            <div class="fl-kick">Нефть на заводе</div>
             <h2>Дальше — переработка, базовые масла и ваше масло</h2>
             <p>Гидравлические, трансмиссионные, турбинные, компрессорные и индустриальные масла. Бочки, кубы IBC и налив по всей России.</p>
             <div class="fl-end-btns">
@@ -100,6 +129,7 @@ export function mountFlight(root, sec, next) {
               <a class="fl-btn2" href="#shelf">Этапы подробно</a>
               <button class="fl-btn2" id="bReplay">Повторить облёт ↺</button>
             </div>
+            <p class="fl-credits">3D-модели «МЛСП Приразломная» © Lightproduction, «Tanker Ship» © KoreanNavy, «Вагон цистерна для поезда» © mamont nikita — CC BY 4.0 (Sketchfab).</p>
           </div>
         </div>
       </div>
@@ -108,7 +138,8 @@ export function mountFlight(root, sec, next) {
   const vp = $('vp');
 
   const stage = createStage(vp, {cam: [-64, 42.5, -64], tgt: [30, 60, 25], pick: false});
-  if (location.hostname === 'localhost') { window.__stage = stage; window.__fl = {jump: (f) => jump(f), pause: () => { paused = true; }}; } // для отладки
+  let dbg = null;
+  if (location.hostname === 'localhost') { window.__stage = stage; window.__fl = {jump: (f) => jump(f), pause: () => { paused = true; }, look: (p, l) => { dbg = p ? [V(...p), V(...l)] : null; }}; } // для отладки
   const camera = stage.camera;
   camera.fov = 55;
   camera.updateProjectionMatrix();
@@ -171,8 +202,21 @@ export function mountFlight(root, sec, next) {
     {t: 215.5, p: above(13250, 330, 110), l: above(DEPOT.x, DEPOT.z, 0)},
     {t: 220.5, p: above(13560, 815, 22), l: above(13760, DEPOT.z + 170, 6)},
     {t: 225.5, p: above(13950, DEPOT.z + 150, 8), l: above(14120, DEPOT.z + 170, 5)},
-    {t: 230.5, p: above(14200, 1000, 140), l: above(13800, 650, 0)},
-    {t: F_END, p: above(14300, 1200, 260), l: above(13700, 600, 0)},
+    {t: 229.5, p: rp(S_LOAD + 26, 15, 6), l: rp(S_LOAD - 12, 0, 3)},
+    {t: 235, p: rp(trainS(235) + 26, -17, 8), l: rp(trainS(235) - 18, 0, 3)},
+    {t: 241, p: rp(trainS(241) + 120, 46, 32), l: rp(trainS(241) - 70, 0, 2)},
+    {t: 246.5, p: rp(1560, -150, 4), l: rp(1700, 0, -6)},
+    {t: 251, p: rp(1720, -118, -14), l: rp(trainS(251) - 140, 0, 4)},
+    {t: 256.5, p: rp(trainS(256.5) + 210, 70, 75), l: rp(trainS(256.5), 0, 0)},
+    {t: 261.5, p: rp(2840, -150, -50), l: rp(2840, 0, -14)},
+    {t: 265.5, p: rp(2860, -105, -28), l: rp(trainS(265.5) - 110, 0, 2)},
+    {t: 270.5, p: [16935, 82, 1010], l: rp(trainS(270.5) - 90, 0, 3)},
+    {t: 276, p: rp(trainS(276) + 260, -90, 62), l: rp(trainS(276), 0, 0)},
+    {t: 282, p: [17330, 196, 790], l: [17880, 112, 280]},
+    {t: 287.5, p: rp(S_STOP - 120, -24, 11), l: rp(S_STOP - 200, 0, 2)},
+    {t: 292.5, p: [18060, 175, -40], l: [17660, 125, 90]},
+    {t: 297.5, p: [18470, 262, 610], l: [17720, 100, 200]},
+    {t: F_END, p: [18620, 330, 720], l: [17620, 100, 160]},
   ];
   const at = (k, key) => (typeof k[key] === 'function' ? k[key]() : V(...k[key]));
   // Эрмит с касательными по соседним кадрам, нормированными на время: скорость непрерывна.
@@ -221,9 +265,20 @@ export function mountFlight(root, sec, next) {
   tag('Лисы', onA(fa.fox, 3), 184.5, 189.5);
   tag('Северный олень на скале', onA(fa.deerCliff, 7), 189.5, 195);
   tag('Стадо северных оленей', onA(fa.herd, 7), 198, 203.5);
-  tag('Нефтебаза · ≈600 км', () => V(DEPOT.x - 150, heightAt(DEPOT.x, DEPOT.z) + 40, DEPOT.z - 100), 213, 230);
-  tag('Эстакада налива в цистерны', () => V(13800, heightAt(13800, DEPOT.z + 170) + 16, DEPOT.z + 175), 217, 230);
-  const levelTags = world.targets.map((tk) => stage.addLabel({html: '', cls: 'level', at: V(tk.x, 34, tk.z), visible: () => F >= 143.5 && F < F_CARD + 2}));
+  tag('Нефтебаза · ≈600 км', () => V(DEPOT.x - 150, heightAt(DEPOT.x, DEPOT.z) + 40, DEPOT.z - 100), 211, 226);
+  tag('Эстакада налива в цистерны', () => V(13700, heightAt(13700, DEPOT.z + 175) + 16, DEPOT.z + 175), 215, 228);
+  const locoA = world.train.sections[0];
+  tag('Электровоз 2ЭС6 «Синара»', () => V(locoA.position.x, locoA.position.y + 7, locoA.position.z), 228.5, 240);
+  tag('Цистерны с нефтью · 20 вагонов', () => V(...rp(trainS(F) - 160, 0, 7)), 235, 241);
+  tag('Мост через реку', () => V(...rp(1730, 0, 16)), 245, 252.5);
+  tag('Арочный виадук над каньоном', () => V(...rp(2830, 0, 14)), 259.5, 267.5);
+  tag('Горное озеро', [16930, 84, 1070], 268.5, 274);
+  tag('Терминал приёмки сырья НПЗ', [17760, 150, 300], 279.5, 287);
+  tag('Сливная эстакада', () => V(...rp(S_STOP - 160, 6, 12)), 284.5, 291);
+  tag('Резервуары сырой нефти', [17470, 130, 390], 283, 290);
+  tag('Установка АВТ', [17580, 170, 104], 290, 297);
+  tag('Факел', [18230, 205, -100], 290, 297);
+  const levelTags = world.targets.map((tk) => stage.addLabel({html: '', cls: 'level', at: V(tk.x, 34, tk.z), visible: () => F >= 143.5 && F < 166}));
 
   // ---------- шкала глав ----------
   const chEl = $('chapters');
@@ -307,6 +362,7 @@ export function mountFlight(root, sec, next) {
 
     // Мир рейса.
     info = world.update(voyageTime(F), playing ? dt : 0, wall, playing, camera);
+    world.setTrain(trainS(F));
     world.targets.forEach((tk, i) => {
       const html = `<b>Р-${tk.ri + 1}</b> ${Math.round(info.levels[i] * 100)}%`;
       if (levelTags[i].el.innerHTML !== html) levelTags[i].el.innerHTML = html;
@@ -320,6 +376,7 @@ export function mountFlight(root, sec, next) {
     // Камера: точка и цель по сплайну, тряска ротора, крен в поворотах, свободный взгляд.
     sample(F, 'p', P);
     sample(F, 'l', Lk);
+    if (dbg) { P.copy(dbg[0]); Lk.copy(dbg[1]); }
     const air = clamp((F - 1.5) / 3, 0, 1) * (started ? 1 : 0);
     const shake = V(Math.sin(wall * 1.7) * 0.25 + Math.sin(wall * 4.1) * 0.06, Math.sin(wall * 2.3) * 0.2, Math.cos(wall * 1.3) * 0.25).multiplyScalar(air);
     if (!started) shake.set(0, Math.sin(wall * 0.8) * 0.05, 0);

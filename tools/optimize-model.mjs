@@ -18,8 +18,9 @@ const run = (...args) => {
 };
 const mb = (f) => (fs.statSync(f).size / 1e6).toFixed(1) + ' MB';
 
+const only = process.argv[2];
 // Платформа
-{
+if (!only || only === 'platform') {
   const src = 'models/source/prirazlomnaya.glb', out = 'public/models/prirazlomnaya.glb';
   run('metalrough', src, `${tmp}/p1.glb`);
   run('dedup', `${tmp}/p1.glb`, `${tmp}/p2.glb`);
@@ -32,12 +33,27 @@ const mb = (f) => (fs.statSync(f).size / 1e6).toFixed(1) + ' MB';
 }
 
 // Танкер
-{
+if (!only || only === 'tanker') {
   const src = 'models/source/tanker_ship.glb', out = 'public/models/tanker.glb';
   run('dedup', src, `${tmp}/t1.glb`);
   run('prune', `${tmp}/t1.glb`, `${tmp}/t2.glb`);
   run('weld', `${tmp}/t2.glb`, `${tmp}/t3.glb`);
   run('simplify', `${tmp}/t3.glb`, `${tmp}/t4.glb`, '--ratio', '0.3', '--error', '0.004');
   run('meshopt', `${tmp}/t4.glb`, out, '--level', 'medium');
+  console.log(`${src} ${mb(src)} → ${out} ${mb(out)}`);
+}
+
+// Вагон-цистерна «Вагон цистерна для поезда» © mamont nikita, CC BY 4.0: упрощение сетки (в составе ~40 вагонов).
+if (!only || only === 'tankcar') {
+  const src = 'models/source/tankcar.glb', out = 'public/models/tankcar.glb';
+  run('dedup', src, `${tmp}/l1.glb`);
+  run('prune', `${tmp}/l1.glb`, `${tmp}/l2.glb`);
+  run('weld', `${tmp}/l2.glb`, `${tmp}/l2w.glb`);
+  run('simplify', `${tmp}/l2w.glb`, `${tmp}/l2s.glb`, '--ratio', '0.2', '--error', '0.02');
+  execFileSync(process.execPath, ['tools/sloppy.mjs', `${tmp}/l2s.glb`, `${tmp}/l2x.glb`, '5000', '0.14'], {stdio: 'inherit'});
+  run('resize', `${tmp}/l2x.glb`, `${tmp}/l3.glb`, '--width', '1024', '--height', '1024');
+  execFileSync(process.execPath, ['tools/saturate-textures.mjs', `${tmp}/l3.glb`, `${tmp}/l3s.glb`, '1.2', '1.05'], {stdio: 'inherit'});
+  run('webp', `${tmp}/l3s.glb`, `${tmp}/l4.glb`, '--quality', '90');
+  run('meshopt', `${tmp}/l4.glb`, out, '--level', 'medium');
   console.log(`${src} ${mb(src)} → ${out} ${mb(out)}`);
 }
