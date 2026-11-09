@@ -63,7 +63,10 @@ async def say(key, text):
             try:
                 await sentence(p, f, attempts=12, pause=8)
             except RuntimeError:
-                raise SystemExit(f'не удалось синтезировать фразу: {p}')
+                path.unlink(missing_ok=True)
+                failed.append(f'{key}: {p}')
+                print('не удалось синтезировать фразу:', p)
+                return
             files.append(f)
         # Склейка с паузой 0,35 с между предложениями.
         silence = pathlib.Path(tmp) / 'gap.mp3'
@@ -82,10 +85,15 @@ async def say(key, text):
     print('готово:', path.name)
 
 
+failed = []
+
+
 async def main():
     for i, text in enumerate(cfg['chapters']):
         await say(str(i), text)
     await say('finale', cfg['finale'])
+    if failed:
+        raise SystemExit('не готово, перефразировать: ' + ' | '.join(failed))
     # Сайт переключается на файлы вместо синтеза браузера.
     cfg['files'] = True
     CFG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + chr(10), encoding='utf-8')
