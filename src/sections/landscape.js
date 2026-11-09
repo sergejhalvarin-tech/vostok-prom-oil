@@ -33,7 +33,7 @@ function ridged(x, y) {
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 // Площадка терминала: ровно y = 3, прямая набережная x = 1700.
-const PAD = {x1: 2165, z: 640}, LAND = 3;
+const PAD = {x1: 2470, z: 640}, LAND = 3;
 export function coastX(z) {
   const wild = 1720 + 150 * Math.sin(z / 430 + 0.6) + 110 * (fbm(z / 260, 4.2, 3) - 0.5) * 2 + 60 * Math.sin(z / 150);
   return 1700 + (wild - 1700) * smooth(PAD.z, PAD.z + 260, Math.abs(z));

@@ -192,8 +192,11 @@ export function buildVoyageWorld(stage) {
     arm.solve(arm.stowed);
     return new THREE.CatmullRomCurve3(pts, false, 'centripetal');
   });
-  const oil = makeBeads(flowCurves, 360, 0.3, OIL, 34);
+  const oil = makeBeads(flowCurves, 420, 0.3, OIL, 34);
   stage.scene.add(oil.mesh);
+  // Раздача: из резервуара по коллектору и эстакаде в насосную станцию и в магистральный нефтепровод.
+  const outflow = makeBeads([new THREE.CatmullRomCurve3(term.dispatchPath, false, 'centripetal')], 260, 0.3, OIL, 22);
+  term.group.add(outflow.mesh);
 
   const wake = makeWake();
   stage.scene.add(wake.points);
@@ -252,6 +255,7 @@ export function buildVoyageWorld(stage) {
 
     // Перекачка и уровень в резервуарах.
     oil.mesh.visible = t >= T.unload[0];
+    outflow.update(dt);
     oil.update(dt);
     targets.forEach((tk, i) => {
       const level = 0.3 + 0.55 * clamp01((t - T.unload[0] - i * 6) / 24);

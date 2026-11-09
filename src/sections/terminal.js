@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import {setLink, sagPoints} from '../kit/sea.js';
 import {makeCoast} from './landscape.js';
 import {makeArm} from './loading-arm.js';
+import {buildPipeNetwork, buildSIKN, buildAdmin, buildLightningRod, buildPumpStation, buildTrunkLines, tankMarkings, routePoints} from './tankfarm.js';
 
 export const SHORE_X = 1700;
 export const LAND_Y = 3;
@@ -174,7 +175,7 @@ export function buildTerminal() {
   }
   // Трубопроводы по эстакаде от стендеров к берегу и на эстакаду вдоль берега.
   const trunkY = DECK_Y + 0.9;
-  const trunk = [V(ARM_X + 4, trunkY, -2), V(1562, trunkY, -2), V(SHORE_X + 2, trunkY, -2), V(1745, trunkY, -2), V(1752, RACK_Y, -2), V(RACK_X - 6, RACK_Y, -2)];
+  const trunk = [V(ARM_X + 4, trunkY, -2), V(1562, trunkY, -2), V(SHORE_X + 2, trunkY, -2), V(1752, trunkY, -2)];
   jetty.add(tube(trunk, 0.75, C.oilPipe, 'pipes', 260));
   jetty.add(tube(trunk.map((p) => p.clone().add(V(0, 0, -2.4))), 0.45, C.steel, 'pipes', 200));
   jetty.add(tube(trunk.map((p) => p.clone().add(V(0, 0, 2.4))), 0.45, C.steel, 'pipes', 200));
@@ -192,39 +193,40 @@ export function buildTerminal() {
     // Обвалование колонки: продольные стенки и поперечные через каждые два резервуара.
     for (const dx of [-44, 44]) add(box(0.6, 2.2, 1000, C.concrete, x + dx, LAND_Y + 1.1, -10, 'farm'));
     for (let z = -510; z <= 490; z += 200) add(box(88, 2.2, 0.6, C.concrete, x, LAND_Y + 1.1, z, 'farm'));
-    // Сборный коллектор вдоль колонки.
-    const hdr = cyl(0.5, 990, C.steel, x - 41, LAND_Y + 1.2, -10, 'farm', 12);
-    hdr.rotation.x = Math.PI / 2;
-    add(hdr);
     ROWS.forEach((z, ri) => {
       const target = TARGET_TANKS.some(([c, r]) => c === ci && r === ri);
       const type = target || (ci + ri) % 4 === 1 ? 'floating' : 'dome';
-      const t = makeTank(TANK_R, TANK_H, type, target ? 0.3 : 0.25 + rnd() * 0.6, ci === 0 && ri % 3 === 0);
+      const t = makeTank(TANK_R, TANK_H, type, target ? 0.3 : 0.25 + rnd() * 0.6, false);
       t.group.position.set(x, LAND_Y + 0.4, z);
       t.group.rotation.y = t.brand ? 0 : rnd() * Math.PI * 2;
       t.group.traverse((o) => (o.userData.key = target ? 'tanks' : 'farm'));
       if (target && t.roof) t.roof.userData.dynamic = true;
       add(t.group);
-      add(link(V(x - 41, LAND_Y + 1.2, z), V(x - TANK_R, LAND_Y + 1.2, z), 0.35, C.steel, 'farm'));
       tanks.push({...t, ci, ri, x, z, target});
     });
   });
 
-  // Ветки от эстакады к принимающим резервуарам — по ним идёт нефть.
-  const branches = TARGET_TANKS.map(([ci, ri]) => {
-    const x = COLS[ci], z = ROWS[ri];
-    const pts = [V(RACK_X - 6, RACK_Y, -2), V(RACK_X - 6, RACK_Y, z), V(RACK_X + 8, RACK_Y, z), V(1806, RACK_Y, z), V(1812, LAND_Y + 2, z), V(x - TANK_R - 0.2, LAND_Y + 2, z)];
-    add(tube(pts.slice(1), 0.75, C.oilPipe, 'pipes', 120));
-    return pts;
-  });
+  // --- Обвязка парка, СИКН, насосная станция, магистральные нефтепроводы ---
+  const DISPATCH_FROM = [1, 5];
+  const net = buildPipeNetwork(group, {cols: COLS, rows: ROWS, tankR: TANK_R, recvTargets: TARGET_TANKS, dispatchFrom: DISPATCH_FROM});
+  const sikn = buildSIKN(group);
+  // С причала: вниз под эстакаду, по входному коллектору СИКН, через измерительную линию, к приёмному коллектору парка.
+  const PY = LAND_Y + 1.4, trunkEnd = trunk[trunk.length - 1];
+  const toSikn = [trunkEnd, V(1752, PY, -2), V(1752, PY, sikn.inlet.z), sikn.inlet.clone()];
+  add(tube(routePoints(toSikn, 1.5), 0.75, C.oilPipe, 'pipes', 160));
+  const throughSikn = [sikn.inlet.clone(), V(sikn.xi, PY, sikn.zl[1]), V(sikn.xo, PY, sikn.zl[1]), sikn.outlet.clone(), V(sikn.xo, PY, 16), V(net.xR0, PY, 16)];
+  add(tube(routePoints(throughSikn.slice(3), 1.5), 0.75, C.oilPipe, 'pipes', 80));
+  const branches = net.recv.map((r) => routePoints([...toSikn, ...throughSikn.slice(1), ...r.tail.slice(1)], 1.5));
+  const station = buildPumpStation(group);
+  const trunkLines = buildTrunkLines(group);
+  const dispatchPath = [...net.dispatch, V(2296, PY, 453), V(2330, LAND_Y + 2.2, 462), ...trunkLines.curves[0].getSpacedPoints(14).slice(0, 4)];
 
   // --- Здания терминала ---
   const bld = (w, h, d, x, z, m = C.white, roofM = C.blue, key = 'farm') => {
     add(box(w, h, d, m, x, LAND_Y + h / 2, z, key), box(w + 0.6, 0.6, d + 0.6, roofM, x, LAND_Y + h + 0.3, z, key));
     add(box(w + 0.05, 1.2, d + 0.05, C.glass, x, LAND_Y + h * 0.6, z, key));
   };
-  bld(26, 9, 16, 1800, -20, mat(0xdfe3e6), C.blue, 'pipes'); // насосная станция
-  bld(40, 14, 18, 1795, -620);                               // административное здание
+  buildAdmin(group, {x: 1795, z: -600});                     // административное здание
   bld(22, 10, 22, 1795, 640, C.red, C.white);                // пожарное депо
   // Машины на стоянке.
   const cars = new THREE.InstancedMesh(new THREE.BoxGeometry(4.5, 1.6, 2), mat(0xffffff, {metalness: 0.5, roughness: 0.35}), 48);
@@ -323,7 +325,7 @@ export function buildTerminal() {
   }
 
   // --- Ограждение периметра ---
-  const FN = [[1745, -560, 2126, -560], [2126, -560, 2126, 560], [2126, 560, 1745, 560]];
+  const FN = [[1745, -560, 2470, -560], [2470, -560, 2470, 560], [2470, 560, 1745, 560]];
   const fenceMat = new THREE.MeshStandardMaterial({color: 0x9aa4ad, transparent: true, opacity: 0.35, roughness: 0.6, side: THREE.DoubleSide, depthWrite: false});
   let posts = 0;
   for (const [x0, z0, x1, z1] of FN) posts += Math.round(Math.hypot(x1 - x0, z1 - z0) / 4) + 1;
@@ -342,39 +344,19 @@ export function buildTerminal() {
   postMesh.userData.noCast = true;
   add(postMesh);
 
-  // --- Номера на резервуарах (одна текстура-атлас на все) ---
-  const atlas = document.createElement('canvas');
-  atlas.width = 1024; atlas.height = 512;
-  const ag = atlas.getContext('2d');
-  ag.font = '800 64px Inter, Segoe UI, sans-serif';
-  ag.textAlign = 'center'; ag.textBaseline = 'middle';
-  tanks.forEach((tk, i) => {
-    const cx = (i % 6) * 170 + 85, cy = Math.floor(i / 6) * 100 + 50;
-    ag.fillStyle = '#123a63';
-    ag.fillText(`Р-${i + 1}`, cx, cy);
-  });
-  const atlasTex = new THREE.CanvasTexture(atlas);
-  atlasTex.colorSpace = THREE.SRGBColorSpace;
-  atlasTex.anisotropy = 8;
-  const numMat = new THREE.MeshStandardMaterial({map: atlasTex, transparent: true, roughness: 0.5, polygonOffset: true, polygonOffsetFactor: -2});
-  tanks.forEach((tk, i) => {
-    const g = new THREE.PlaneGeometry(7.5, 4.4);
-    const uv = g.attributes.uv, u0 = (i % 6) * 170 / 1024, v1 = 1 - Math.floor(i / 6) * 100 / 512;
-    for (let k = 0; k < uv.count; k++) uv.setXY(k, u0 + uv.getX(k) * (170 / 1024), v1 - (1 - uv.getY(k)) * (100 / 512));
-    const m = new THREE.Mesh(g, numMat);
-    m.position.set(tk.x - TANK_R - 0.12, LAND_Y + 14, tk.z + 9);
-    m.rotation.y = -Math.PI / 2;
-    m.userData.noCast = true;
-    m.userData.key = tk.target ? 'tanks' : 'farm';
-    add(m);
-  });
+  // --- Маркировка резервуаров «Транснефть» ---
+  tankMarkings(group, tanks, TANK_R, TANK_H);
+
+  // --- Молниеотводы по периметру и между группами резервуаров ---
+  for (const [x, z] of [[1917.5, -420], [1917.5, -60], [1917.5, 300], [2012.5, -240], [2012.5, 120], [2012.5, 460],
+    [1826, -540], [2108, -540], [2108, 300], [1806, 52], [2240, 420], [2360, 420]]) buildLightningRod(group, x, z);
 
   // Мол с маяком.
   add(box(18, 6, 600, C.concrete, 1300, 0.5, 1150));
   add(cyl(2.5, 16, C.red, 1300, 11, 860, undefined, 16), cyl(2.6, 3, C.white, 1300, 20.5, 860, undefined, 16));
 
   const mountains = makeCoast();
-  return {group, arms, tanks, branches, trunk, mountains};
+  return {group, arms, tanks, branches, trunk, mountains, dispatchPath};
 }
 
 // ======================================================================
