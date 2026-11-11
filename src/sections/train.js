@@ -61,7 +61,25 @@ function sideTexture() {
       g.fillStyle = '#5b6266';
       for (let y = 3.55; y < 4.02; y += 0.06) g.fillRect(Math.min(X(z0), X(z0 + 1.7)) + 3, Yp(y), Math.abs(X(z0 + 1.7) - X(z0)) - 6, 2);
     }
-    // Логотип и номер.
+    // Люки ревизии (6 шт на боковину).
+    const hatch = (z, y, w, h) => { g.fillStyle = '#a7abad'; g.strokeStyle = '#6c7275'; g.lineWidth = 1.5; g.fillRect(X(z - w/2), Yp(y + h/2), w * px, h * py); g.strokeRect(X(z - w/2), Yp(y + h/2), w * px, h * py); };
+    // Люки ревизии кузова (3 на боковину)
+    hatch(-6.8, 2.8, 0.6, 0.8); hatch(-3.2, 2.8, 0.6, 0.8); hatch(0.8, 2.8, 0.6, 0.8);
+    // Люки пескобаков (2 на боковину)
+    hatch(-5.5, 1.6, 0.5, 0.5); hatch(1.5, 1.6, 0.5, 0.5);
+    // Люки сдачи конденсата (2 на боковину)
+    hatch(-1.0, 1.5, 0.4, 0.4); hatch(2.0, 1.5, 0.4, 0.4);
+    // Заземляющие контакты (4 на боковину)
+    for (const z of [-7.2, -4.0, 0.5, 4.0]) {
+      g.fillStyle = '#e8a030'; g.fillRect(X(z), Yp(1.4), 3, 8);
+    }
+    // Таблички «ОСТЕРЕГАЙСЯ ВЫСОКОГО НАПРЯЖЕНИЯ» (2 на боковину)
+    g.fillStyle = '#ffeb3b'; g.strokeStyle = '#000'; g.lineWidth = 1;
+    for (const z of [-6.0, 3.0]) { g.fillRect(X(z), Yp(4.0), 120, 60); g.strokeRect(X(z), Yp(4.0), 120, 60); g.fillStyle = '#000'; g.font = 'bold 18px Arial'; g.textAlign = 'center'; g.fillText('⚡', X(z + 0.6), Yp(4.0 + 0.3)); }
+    // Номера секций (2ЭС6-XXX)
+    g.fillStyle = '#fff'; g.font = `bold ${Math.round(0.35 * py)}px Arial`; g.textAlign = 'center';
+    g.fillText('2ЭС6-126', X(-7.5), Yp(1.8));
+    // Логотип и номер (основной).
     g.fillStyle = '#c8141c';
     g.font = `italic 900 ${Math.round(0.62 * py)}px Arial, sans-serif`;
     g.textAlign = 'center'; g.textBaseline = 'middle';
@@ -110,6 +128,11 @@ function frontTexture() {
   g.fillText('РЖД', X(0), Y(2.45));
   g.fillStyle = '#1b1b1b'; g.fillRect(X(-0.42), Y(2.2), X(0.42) - X(-0.42), 26);
   g.fillStyle = '#fff'; g.font = '700 20px Arial'; g.fillText('2ЭС6-126', X(0), Y(2.2) + 13);
+  // SA-3 автосцепка (пневмоустройство) — контур
+  g.strokeStyle = '#8e9397'; g.lineWidth = 4;
+  g.beginPath(); g.arc(X(0), Y(1.8), 45, 0, Math.PI * 2); g.stroke();
+  g.strokeStyle = '#e01919'; g.lineWidth = 2;
+  g.beginPath(); g.arc(X(0), Y(1.8), 28, 0, Math.PI * 2); g.stroke();
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
@@ -186,6 +209,12 @@ function locoParts() {
     rubber: mat(0x16181a, {roughness: 0.9}),
     lamp: new THREE.MeshStandardMaterial({color: 0xfff4d0, emissive: 0xfff0c0, emissiveIntensity: 2.2}),
     glass: mat(0x1d2c38, {metalness: 0.7, roughness: 0.08}),
+    // Новые материалы для деталей
+    yellow: mat(0xffeb3b, {roughness: 0.3}),
+    black: mat(0x1a1a1a, {roughness: 0.8}),
+    white: mat(0xf0f0f0, {roughness: 0.4}),
+    brass: mat(0xe8a030, {metalness: 0.9, roughness: 0.2}),
+    contact: mat(0xc0c0c0, {metalness: 0.95, roughness: 0.1}),
   };
   return LOCO_PARTS;
 }
@@ -201,7 +230,207 @@ const add = (g, geo, m, x, y, z, rx = 0, ry = 0, rz = 0) => {
 const boxG = (w, h, d) => new THREE.BoxGeometry(w, h, d);
 const cylG = (r, h, s = 12) => new THREE.CylinderGeometry(r, r, h, s);
 
-// Тележка: боковины, колёсные пары, буксы, пружины, тяговые двигатели. Вперёд — +z.
+// ============================================================ ДЕТАЛИЗАЦИЯ УЗЛОВ 2ЭС6
+
+// --- КРЫША: вентиляторы, реостатные кассы, пескоустройства, сжатый воздух ---
+function buildRoofEquipment(P, flip) {
+  const g = new THREE.Group();
+  const f = flip ? -1 : 1;
+  const zBase = flip ? -8.3 : 8.3; // переход / кабина
+  const zCabin = flip ? -6.0 : 6.0; // зона кабины
+  const zMach = flip ? -2.0 : 2.0;  // машинное отделение
+  
+  // 4 охлаждающих вентилятора (диаметр 0.9м) — 2 на секцию
+  const fanPos = flip ? [-5.0, -1.0] : [1.0, 5.0];
+  for (const z of fanPos) {
+    const fan = new THREE.Group();
+    // Корпус вентилятора
+    add(fan, cylG(0.55, 0.4, 16), P.grey, 0, 5.2, z);
+    // Лопасти (невидимые статично, будут анимироваться)
+    const blades = new THREE.Group();
+    for (let i = 0; i < 6; i++) {
+      add(blades, boxG(0.08, 0.9, 0.02), P.steel, 0, 0, 0, 0, i * Math.PI / 3, 0);
+    }
+    blades.position.set(0, 5.2, z);
+    fan.add(blades);
+    fan.userData = {blades, spin: 0, type: 'fan'};
+    g.add(fan);
+  }
+  
+  // Реостатные кассы (2 на секцию, по бокам)
+  for (const sx of [-1, 1]) {
+    const z = flip ? -3.5 : 3.5;
+    add(g, boxG(1.8, 0.8, 3.2), P.dark, sx * 1.6, 4.8, z);
+    // Решётки вентиляции
+    for (let i = 0; i < 4; i++) {
+      add(g, boxG(1.6, 0.05, 0.6), P.steel, sx * 1.6, 4.8 - 0.35 + i * 0.2, z);
+    }
+  }
+  
+  // Пескоустройства: 4 бака (2 на секцию) + пневмофорсунки
+  for (const sx of [-1, 1]) {
+    const z = flip ? -4.5 : 4.5;
+    const tank = add(g, cylG(0.35, 1.2, 16), P.steel, sx * 1.3, 4.3, z, Math.PI / 2);
+    tank.userData = {type: 'sand', flip};
+    // Пневмофорсунка на рельсы
+    const nozzle = add(g, cylG(0.04, 0.5, 8), P.steel, sx * 1.3, 1.1, z + 0.6, 0, 0, Math.PI / 2);
+    nozzle.userData = {type: 'sand_nozzle', flip};
+  }
+  
+  // Система сжатого воздуха: 2 резервуара 500л на секцию
+  for (const sx of [-1, 1]) {
+    const z = flip ? -2.5 : 2.5;
+    add(g, cylG(0.3, 2.0, 16), P.steel, sx * 1.4, 1.2, z, Math.PI / 2);
+    add(g, cylG(0.3, 2.0, 16), P.steel, sx * 1.4, 1.6, z, Math.PI / 2);
+    // Конденсатосборники
+    add(g, cylG(0.08, 0.4, 12), P.steel, sx * 1.4, 0.8, z, Math.PI / 2);
+  }
+  
+  // Токоприёмник АК-11 (двухплечий, 3кВ постоянка) — на задней секции
+  if (!flip) {
+    const pan = pantograph(P);
+    pan.position.set(0, 4.62, 3.9);
+    pan.rotation.y = Math.PI;
+    pan.userData.type = 'pantograph_ak11';
+    g.add(pan);
+    g.userData.pan = pan;
+  }
+  
+  // Изоляторы на крыше (после токоприёмника)
+  for (let z = -7.4; z < 3; z += 2.4) {
+    for (const s of [-1, 1]) {
+      for (let k = 0; k < 5; k++) {
+        add(g, cylG(0.15 - (k % 2) * 0.04, 0.07, 10), P.ins, s * 1.0, 4.66 + k * 0.07, z);
+      }
+    }
+  }
+  
+  // Крышевая шина
+  add(g, cylG(0.035, 11, 6), P.steel, 0.6, 5.05, -0.4, Math.PI / 2);
+  
+  // Ограждения крыши (по периметру)
+  for (let z = -7.4; z < 3; z += 2.4) {
+    for (const s of [-1, 1]) {
+      add(g, boxG(0.08, 0.32, 0.08), P.rail, s * 1.0, 4.78, z);
+      add(g, boxG(0.08, 0.32, 0.08), P.rail, s * 1.0, 4.78, z + 1.6);
+      add(g, boxG(0.1, 0.08, 1.8), P.rail, s * 1.0, 4.96, z + 0.8);
+    }
+  }
+  
+  // Жалюзи на крыше (машинное отделение)
+  for (let z = -6.0; z < -1.0; z += 1.2) {
+    for (const sx of [-1, 1]) {
+      add(g, boxG(0.08, 0.6, 1.8), P.dark, sx * 1.55, 4.9, z);
+      for (let i = 0; i < 8; i++) {
+        add(g, boxG(0.08, 0.05, 1.6), P.steel, sx * 1.55, 4.9 - 0.25 + i * 0.07, z);
+      }
+    }
+  }
+  
+  // Антенна рации Р-168
+  if (!flip) {
+    add(g, cylG(0.02, 1.4, 4), P.steel, -0.9, 5.3, -7.4);
+  }
+  
+  return g;
+}
+
+// --- КАБИНА: интерьер (пульт УТЭ, пневмоконтроллер, сальники, кран машиниста, АКЛСН, радио Р-168, климат) ---
+function buildCabInterior(P) {
+  const g = new THREE.Group();
+  // Пульт УТЭ (ЕП-20) — слева от машиниста
+  add(g, boxG(0.5, 0.8, 0.4), P.black, -1.0, 3.0, -0.5);
+  add(g, boxG(0.48, 0.1, 0.38), P.yellow, -1.0, 3.5, -0.5); // индикаторы
+  // Пневмоконтроллер (кран машиниста) — справа
+  add(g, cylG(0.08, 0.3, 12), P.red, 1.0, 3.0, -0.3);
+  add(g, boxG(0.15, 0.15, 0.2), P.black, 1.0, 3.3, -0.3); // рукоятка
+  // Сальники КСУ (контроль скорости уставки)
+  add(g, boxG(0.3, 0.2, 0.3), P.dark, 0, 3.1, -0.8);
+  // АКЛСН (автоматическая локомотивная сигнализация непрерывного действия)
+  add(g, boxG(0.25, 0.15, 0.25), P.yellow, 0.5, 3.2, -0.9);
+  // Радиостанция Р-168
+  add(g, boxG(0.2, 0.1, 0.2), P.dark, -0.7, 3.4, -0.9);
+  // Климат-блок (обогрев/вентиляция кабины)
+  add(g, boxG(0.6, 0.2, 0.4), P.grey, 0, 4.0, -0.5);
+  for (let i = 0; i < 4; i++) {
+    add(g, boxG(0.12, 0.03, 0.3), P.steel, -0.22 + i * 0.15, 4.1, -0.5);
+  }
+  // Сиденья машиниста и помощника
+  add(g, boxG(0.5, 0.6, 0.5), P.black, -1.0, 2.4, -0.2);
+  add(g, boxG(0.5, 0.6, 0.5), P.black, 1.0, 2.4, -0.2);
+  // Пол кабины (настил)
+  add(g, boxG(2.5, 0.05, 2.0), P.rail, 0, 2.3, -0.5);
+  return g;
+}
+
+// --- ГОЛОВНАЯ ЧАСТЬ: СА-3, рукава, фары, зеркала, путеочиститель ---
+function buildFrontEnd(P, flip) {
+  const g = new THREE.Group();
+  const f = flip ? -1 : 1;
+  const zNose = flip ? -HL : HL;
+  
+  // Путеочиститель (улучшенный профиль)
+  const plow = new THREE.Shape();
+  plow.moveTo(-1.45, 0); plow.lineTo(1.45, 0); plow.lineTo(1.25, -0.75); plow.lineTo(-1.25, -0.75); plow.closePath();
+  const pl = add(g, new THREE.ExtrudeGeometry(plow, {depth: 0.5, bevelEnabled: false}), P.orange, 0, 1.15, zNose - 0.55 * f);
+  pl.scale.z = 1;
+  
+  // Автосцепка СА-3 (с пневмоустройством)
+  add(g, boxG(2.9, 0.45, 0.5), P.orange, 0, 1.45, zNose - 0.2 * f);
+  // Пневмоустройство СА-3 (красный цилиндр с рукавами)
+  const sa3 = new THREE.Group();
+  add(sa3, cylG(0.25, 0.4, 16), P.red, 0, 1.05, 0);
+  add(sa3, boxG(0.42, 0.32, 0.9), P.dark, 0, 1.05, 0.35); // рукава тормозной магистрали
+  add(sa3, boxG(0.15, 0.15, 0.6), P.yellow, 0, 1.05, -0.35); // электросцепка ЭП-1
+  sa3.position.set(0, 1.05, zNose + 0.35 * f);
+  g.add(sa3);
+  
+  // Фары: основные (2×250Вт LED) + габаритные + маневровые + поисковые
+  // Основные фары (в красную маску)
+  for (const s of [-1, 1]) {
+    // Основной луч
+    add(g, new THREE.CircleGeometry(0.17, 14), P.lamp, s * 0.95, 2.28, zNose + 0.02 * f);
+    // Маневровая фара (желтая)
+    add(g, new THREE.CircleGeometry(0.11, 12), new THREE.MeshStandardMaterial({color: 0xfff4d0, emissive: 0xffd000, emissiveIntensity: 1.5}), s * 0.95, 2.28, zNose + 0.12 * f);
+    // Габаритная (белая)
+    add(g, boxG(0.06, 0.45, 0.28), P.dark, s * 1.62, 3.3, zNose + 0.02 * f);
+  }
+  
+  // Поисковые фары (на крыше кабины)
+  if (!flip) {
+    for (const s of [-1, 1]) {
+      const search = add(g, new THREE.ConeGeometry(0.12, 0.4, 8), P.lamp, s * 0.7, 4.7, zNose + 0.5 * f, -Math.PI / 2);
+      search.userData = {type: 'search_light', target: new THREE.Vector3(0, 0, -50)};
+    }
+  }
+  
+  // Зеркала заднего вида (на дверях кабины)
+  for (const s of [-1, 1]) {
+    add(g, boxG(0.06, 0.3, 0.25), P.dark, s * 1.55, 3.2, zNose - 0.2 * f, 0, s * 0.3, 0);
+    add(g, boxG(0.04, 0.28, 0.23), new THREE.MeshStandardMaterial({color: 0x222, metalness: 0.9, roughness: 0.05}), s * 1.55, 3.2, zNose - 0.22 * f, 0, s * 0.3, 0);
+  }
+  
+  // Лобовое стекло с обогревом (проволочки)
+  // Обогрев лобового стекла — тонкие нити
+  // (визуализируется через материал glass с emissiveMap, здесь опускаем для простоты)
+  
+  // Обугровка зеркал — индикатор
+  for (const s of [-1, 1]) {
+    add(g, new THREE.CircleGeometry(0.03, 6), new THREE.MeshStandardMaterial({color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 1.0}), s * 1.55, 3.2, zNose - 0.25 * f);
+  }
+  
+  // Пескоструйка на рельсы (пневмофорсунки у лобовых колёс)
+  for (const sz of [-1, 1]) {
+    for (const sx of [-1, 1]) {
+      const z = zNose + (sz === 1 ? -0.5 : 0.5) * f;
+      add(g, cylG(0.025, 0.3, 6), P.steel, sx * 0.8, 0.7, z, 0, 0, Math.PI / 2);
+    }
+  }
+  
+  return g;
+}
+
+// --- ТЕЛЕЖКА: токосъёмники, датчики, тормоза, антипроскальзывание ---
 function bogie(P) {
   const g = new THREE.Group();
   const wheels = [];
@@ -226,34 +455,108 @@ function bogie(P) {
       add(ws, cylG(0.66, 0.035, 22), P.steel, sx * 0.94, 0, 0, 0, 0, Math.PI / 2);              // гребень
       add(ws, boxG(0.16, 0.9, 0.14), P.grey, sx, 0, 0);                                         // спица/диск
     }
+    // Тяговый двигатель (НБ-418К, 4 на тележку)
     add(g, boxG(1.3, 0.75, 0.9), P.dark, 0, 0.72, sz * 0.45);                                   // тяговый двигатель
+    // Токосъёмники: 4 щеточных держателя на двигатель
+    const holder = add(g, boxG(0.1, 0.15, 0.3), P.ins, 0, 1.0, sz * 0.45);
+    for (let i = 0; i < 4; i++) {
+      add(g, cylG(0.025, 0.2, 6), P.contact, 0, 1.15 + i * 0.03, sz * 0.45, Math.PI / 2);
+    }
+    // Вентиляция тяговых ДВ (решётки)
+    for (let i = 0; i < 3; i++) {
+      add(g, boxG(1.1, 0.03, 0.4), P.steel, 0, 1.1 + i * 0.1, sz * 0.45);
+    }
     wheels.push(ws);
   }
   add(g, boxG(2.4, 0.3, 0.8), P.grey, 0, 1.15, 0);                                              // шкворневая балка
+  // Тормозные колодки (композитные, 4 на колёсную пару)
+  for (const sz of [-1.3, 1.3]) {
+    for (const sx of [-0.79, 0.79]) {
+      add(g, boxG(0.15, 0.8, 0.12), new THREE.MeshStandardMaterial({color: 0x2a2a2a, roughness: 0.9}), sx * 0.9, 0.72, sz);
+    }
+  }
+  // Пневмоцилиндры тормоза (2 на тележку)
+  for (const sz of [-1.3, 1.3]) {
+    add(g, cylG(0.1, 0.8, 8), P.steel, 0, 0.7, sz * 0.6);
+  }
+  // Датчики скольжения/проскальзывания (индукционные, на буксах)
+  for (const sz of [-1.3, 1.3]) {
+    for (const sx of [-1, 1]) {
+      add(g, cylG(0.03, 0.05, 8), P.yellow, sx * 1.22, 0.6, sz, Math.PI / 2);
+    }
+  }
+  // Датчики скорости (индукционные, 2 на тележку)
+  for (const sz of [-1.3, 1.3]) {
+    add(g, cylG(0.04, 0.1, 8), P.steel, 0, 0.55, sz, Math.PI / 2);
+  }
+  
   g.userData.wheels = wheels;
   return g;
 }
 
-// Токоприёмник (одноплечий): основание на изоляторах, нижнее и верхнее плечо, полоз с двумя вставками.
+// --- МЕЖСЕКЦИОННЫЙ ПЕРЕХОД: настил, поручини, герметик, разъёмы ---
+function buildTransition(P) {
+  const g = new THREE.Group();
+  // Настил (резиновый)
+  for (let k = 0; k < 6; k++) {
+    add(g, boxG(2.0, 2.6, 0.06), P.rubber, 0, 3.0, -HL - 0.05 - k * 0.06);
+  }
+  // Поручины (по бокам)
+  for (const s of [-1, 1]) {
+    for (let k = 0; k < 6; k++) {
+      add(g, cylG(0.04, 2.6, 8), P.steel, s * 1.0, 3.0, -HL - 0.05 - k * 0.06);
+    }
+  }
+  // Герметик (прямоугольный профиль)
+  for (let k = 0; k < 6; k++) {
+    add(g, boxG(2.0, 0.15, 0.06), P.rubber, 0, 2.5, -HL - 0.05 - k * 0.06);
+    add(g, boxG(2.0, 0.15, 0.06), P.rubber, 0, 4.4, -HL - 0.05 - k * 0.06);
+  }
+  // Электроразъёмы высокого/низкого напряжения (3 пары)
+  for (let i = 0; i < 3; i++) {
+    add(g, cylG(0.08, 0.2, 12), P.ins, 0, 3.0 + i * 0.5, -HL - 0.2);
+    add(g, cylG(0.08, 0.2, 12), P.ins, 0, 3.0 + i * 0.5, -HL - 0.35);
+  }
+  // Пневморазъёмы (3 линии: тормозная магистраль, приборная, сальниковая)
+  for (let i = 0; i < 3; i++) {
+    add(g, cylG(0.05, 0.15, 10), P.red, 0, 2.0 + i * 0.5, -HL - 0.2);
+    add(g, cylG(0.05, 0.15, 10), P.red, 0, 2.0 + i * 0.5, -HL - 0.35);
+  }
+  return g;
+}
+
+// --- ТОКОПРИЁМНИК АК-11 (двухплечий, 3кВ постоянка) ---
 function pantograph(P) {
   const g = new THREE.Group();
+  // Основание на изоляторах (4 шт)
   add(g, boxG(1.7, 0.16, 1.5), P.red, 0, 0.42, 0);
   for (const [x, z] of [[-0.75, -0.6], [0.75, -0.6], [-0.75, 0.6], [0.75, 0.6]]) {
     for (let k = 0; k < 4; k++) add(g, cylG(0.13 - (k % 2) * 0.03, 0.08, 10), P.ins, x, 0.06 + k * 0.08, z);
   }
+  // Нижнее плечо (коробчатое)
   add(g, boxG(0.5, 0.35, 0.45), P.red, 0, 0.62, -0.4);
+  
   const lower = new THREE.Group(), upper = new THREE.Group(), head = new THREE.Group();
   lower.position.set(0, 0.62, -0.4);
   g.add(lower);
   add(lower, boxG(0.16, 0.16, 1.9), P.red, 0, 0, 0.95);
   add(lower, cylG(0.04, 1.9, 6), P.red, 0.22, 0, 0.95, Math.PI / 2);
+  
   upper.position.set(0, 0, 1.9);
   lower.add(upper);
   add(upper, cylG(0.05, 1.95, 6), P.red, 0, 0, -0.975, Math.PI / 2);
+  
   head.position.set(0, 0, -1.95);
   upper.add(head);
-  for (const dz of [-0.2, 0.2]) add(head, boxG(1.9, 0.07, 0.1), P.steel, 0, 0.05, dz);
+  // Полоз с двумя вставками (контактный провод 120 мм²)
+  for (const dz of [-0.2, 0.2]) add(head, boxG(1.9, 0.07, 0.1), P.contact, 0, 0.05, dz);
+  // Рогатки устойчивости полоза
   for (const sx of [-1, 1]) add(head, new THREE.TorusGeometry(0.22, 0.025, 4, 10, Math.PI), P.steel, sx * 1.0, 0.0, 0, 0, sx * Math.PI / 2, 0);
+  
+  // Пневмопривод подъёма (2 цилиндра на нижнем плече)
+  add(lower, cylG(0.08, 1.5, 8), P.steel, -0.35, 0, 0.95);
+  add(lower, cylG(0.08, 1.5, 8), P.steel, 0.35, 0, 0.95);
+  
   // Поднять полоз на высоту h над шарниром основания.
   g.userData.raise = (h) => {
     const a = 1.9, b = 1.95, zh = -0.3, d = Math.min(a + b - 0.05, Math.hypot(zh, h));
@@ -264,71 +567,70 @@ function pantograph(P) {
     upper.rotation.x = be;
     head.rotation.x = -(lower.rotation.x + upper.rotation.x);
   };
+  g.userData.type = 'pantograph_ak11';
   return g;
 }
 
-// Секция электровоза: кабина в +z, переход — в −z.
+// ============================================================ СБОРКА СЕКЦИИ
 function locoSection() {
   const P = locoParts();
   const g = new THREE.Group();
   const body = new THREE.Group();
   g.add(body);
+  
+  // Основной кузов (процедурная геометрия + текстура)
   add(body, P.geo.body, P.side, 0, 0, 0);
   add(body, P.geo.front, P.front, 0, 0, 0);
   add(body, P.geo.back, P.grey, 0, 0, 0);
-  // Рама и подкузовное оборудование.
+  
+  // Рама и подкузовное оборудование (базовые коробки)
   add(body, boxG(3.0, 0.32, 16.2), P.grey, 0, 1.2, 0);
   for (const z of [-0.9, 1.6]) add(body, boxG(2.6, 0.7, 2.2), P.grey, 0, 0.95, z);
   add(body, boxG(2.7, 0.55, 1.3), P.dark, 0, 0.9, -2.6);
-  add(body, cylG(0.32, 2.4, 12), P.steel, 0.9, 0.85, 3.1, Math.PI / 2);                           // главные резервуары
+  // Главные резервуары (воздух, масло)
+  add(body, cylG(0.32, 2.4, 12), P.steel, 0.9, 0.85, 3.1, Math.PI / 2);
   add(body, cylG(0.32, 2.4, 12), P.steel, -0.9, 0.85, 3.1, Math.PI / 2);
-  // Лобовая часть: путеочиститель, автосцепка, рукава, лобовой прожектор, зеркала.
-  const plow = new THREE.Shape();
-  plow.moveTo(-1.45, 0); plow.lineTo(1.45, 0); plow.lineTo(1.25, -0.75); plow.lineTo(-1.25, -0.75); plow.closePath();
-  const pl = add(body, new THREE.ExtrudeGeometry(plow, {depth: 0.5, bevelEnabled: false}), P.orange, 0, 1.15, HL - 0.55);
-  pl.scale.z = 1;
-  add(body, boxG(2.9, 0.45, 0.5), P.orange, 0, 1.45, HL - 0.2);
-  add(body, boxG(0.42, 0.32, 0.9), P.dark, 0, 1.05, HL + 0.35);
-  for (const x of [-0.6, 0, 0.6]) add(body, new THREE.TorusGeometry(0.2, 0.03, 4, 10, Math.PI), P.dark, x, 1.15, HL + 0.12, 0, 0, Math.PI);
-  add(body, boxG(0.6, 0.42, 0.5), P.grey, 0, 4.6, HL - 1.1);
-  add(body, new THREE.CircleGeometry(0.17, 14), P.lamp, 0, 4.6, HL - 0.84);
-  for (const s of [-1, 1]) {
-    add(body, new THREE.CircleGeometry(0.11, 12), P.lamp, s * 0.95, 2.28, HL + 0.02);
-    add(body, boxG(0.06, 0.45, 0.28), P.dark, s * 1.62, 3.3, HL - 1.55);
-  }
-  // Крыша: токоприёмник у кабины, изоляторы, шины, ограждения, жалюзи, антенна.
-  const pan = pantograph(P);
-  pan.position.set(0, 4.62, 3.9);
-  pan.rotation.y = Math.PI;
-  body.add(pan);
-  for (const [x, z] of [[-0.6, 1.8], [0.6, 1.8], [-0.6, 5.3], [0.6, 5.3], [0, -4.8], [0.5, -5.6]]) {
-    for (let k = 0; k < 5; k++) add(body, cylG(0.15 - (k % 2) * 0.04, 0.07, 10), P.ins, x, 4.66 + k * 0.07, z);
-  }
-  add(body, cylG(0.035, 11, 6), P.steel, 0.6, 5.05, -0.4, Math.PI / 2);                          // крышевая шина
-  for (let z = -7.4; z < 3; z += 2.4) {
-    for (const s of [-1, 1]) {
-      add(body, boxG(0.08, 0.32, 0.08), P.rail, s * 1.0, 4.78, z);
-      add(body, boxG(0.08, 0.32, 0.08), P.rail, s * 1.0, 4.78, z + 1.6);
-      add(body, boxG(0.1, 0.08, 1.8), P.rail, s * 1.0, 4.96, z + 0.8);
-    }
-  }
-  add(body, boxG(1.2, 0.04, 0.7), P.dark, -0.4, 4.63, -2.0);
-  add(body, boxG(1.0, 0.04, 0.5), P.dark, 0.4, 4.63, 6.3);
-  add(body, cylG(0.02, 1.4, 4), P.steel, -0.9, 5.3, -7.4);
-  // Переход между секциями.
-  for (let k = 0; k < 6; k++) add(body, boxG(2.0, 2.6, 0.06), P.rubber, 0, 3.0, -HL - 0.05 - k * 0.06);
-  // Тележки.
+  
+  // === НОВЫЕ ДЕТАЛЬНЫЕ УЗЛЫ ===
+  // 1. Крыша с оборудованием
+  const roofEq = buildRoofEquipment(P, false);
+  body.add(roofEq);
+  body.userData.roof = roofEq;
+  
+  // 2. Кабина с интерьером
+  const cab = buildCabInterior(P);
+  cab.position.set(0, 0, 6.0); // зона кабины
+  body.add(cab);
+  
+  // 3. Головная часть (фары, СА-3, зеркала, пескоструйка)
+  const front = buildFrontEnd(P, false);
+  body.add(front);
+  
+  // 4. Токоприёмник АК-11 (на задней секции, здесь флаг false)
+  // (добавляется в buildRoofEquipment для !flip)
+  
+  // 5. Тележки (улучшенные)
   const bogies = [-4.5, 4.5].map((z) => { const b = bogie(P); b.position.set(0, 0, z); g.add(b); return b; });
-  pan.userData.raise(0.3);
-  // Сотни деталей → несколько мешей: кузов целиком, тележки, колёсные пары (крутятся).
-  pan.userData.dynamic = true;
-  mergeStatic(body);
+  g.userData.bogies = bogies;
+  
+  // 6. Межсекционный переход
+  const transition = buildTransition(P);
+  body.add(transition);
+  
+  // Флаги для динамических частей
+  roofEq.userData.dynamic = true;
+  // Крыша: подвижны только лопасти вентиляторов и токоприёмник, остальное — одним мешем на материал.
+  const fans = [];
+  roofEq.traverse((o) => { if (o.userData.type === 'fan' && o.userData.blades) { o.userData.blades.userData.dynamic = true; fans.push(o.userData.blades); } });
+  for (const f of fans) mergeStatic(f);
+  if (roofEq.userData.pan) roofEq.userData.pan.userData.dynamic = true;
+  mergeStatic(roofEq);
   for (const b of bogies) {
     for (const ws of b.userData.wheels) { ws.userData.dynamic = true; mergeStatic(ws); }
     mergeStatic(b);
   }
-  g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-  g.userData = {body, bogies, pan, panH: 0.3};
+  mergeStatic(body);
+  g.userData = {body, bogies, pan: roofEq.userData.pan, panH: 0.3, transition, front, cab, roof: roofEq};
   return g;
 }
 
@@ -408,35 +710,54 @@ export function makeTrain(stage, {cars = 20, extra = []} = {}) {
       for (const im of inst.bogie) { im.setMatrixAt(i * 2 + k, bm); im.instanceMatrix.needsUpdate = true; }
     }
   }
-  let lastS = 0, spin = 0;
-  const tmpO = new THREE.Object3D();
-  // sHead — путь головы поезда (лоб первой секции) по оси железной дороги.
-  function place(sHead) {
-    spin += (sHead - lastS) / 0.625;
-    lastS = sHead;
-    // Секции электровоза: первая кабиной вперёд, вторая — назад.
-    const c0 = sHead - SEC / 2, c1 = sHead - SEC - GAP - SEC / 2;
-    orient(secs[0], c0 + 4.5, c0 - 4.5, false);
-    orient(secs[1], c1 + 4.5, c1 - 4.5, true);
-    for (const [k, s] of secs.entries()) {
-      const cc = k === 0 ? c0 : c1;
-      s.userData.bogies.forEach((bg, j) => {
-        const sb = cc + (j === 0 ? -4.5 : 4.5) * (k === 0 ? 1 : -1);
-        railAt(sb, a);
-        const w = new THREE.Vector3(a.x, a.y + RAIL_TOP, a.z);
-        s.worldToLocal(w);
-        bg.position.set(0, w.y, bg.position.z);
-        const t = V(a.tx, 0, a.tz).transformDirection(new THREE.Matrix4().copy(s.matrixWorld).invert());
-        bg.rotation.y = Math.atan2(t.x, t.z) + (k === 1 ? Math.PI : 0);
-        bg.userData.wheels.forEach((w2) => (w2.rotation.x = spin * (k === 1 ? -1 : 1)));
-      });
-      s.updateMatrixWorld();
-    }
-    // Токоприёмник задней секции поднят под контактный провод (сеть начинается за эстакадой налива).
-    const want = 0.3 + 0.8 * Math.min(1, Math.max(0, (sHead - 735) / 25));
-    const sp = secs[1].userData;
-    if (Math.abs(sp.panH - want) > 0.01) { sp.panH = want; sp.pan.userData.raise(want); }
-    if (!inst) return;
+  let lastS = 0, spin = 0, fanPhase = 0;
+    const tmpO = new THREE.Object3D();
+    // sHead — путь головы поезда (лоб первой секции) по оси железной дороги.
+    function place(sHead, dt = 0) {
+      spin += (sHead - lastS) / 0.625;
+      lastS = sHead;
+      // Секции электровоза: первая кабиной вперёд, вторая — назад.
+      const c0 = sHead - SEC / 2, c1 = sHead - SEC - GAP - SEC / 2;
+      orient(secs[0], c0 + 4.5, c0 - 4.5, false);
+      orient(secs[1], c1 + 4.5, c1 - 4.5, true);
+      for (const [k, s] of secs.entries()) {
+        const cc = k === 0 ? c0 : c1;
+        s.userData.bogies.forEach((bg, j) => {
+          const sb = cc + (j === 0 ? -4.5 : 4.5) * (k === 0 ? 1 : -1);
+          railAt(sb, a);
+          const w = new THREE.Vector3(a.x, a.y + RAIL_TOP, a.z);
+          s.worldToLocal(w);
+          bg.position.set(0, w.y, bg.position.z);
+          const t = V(a.tx, 0, a.tz).transformDirection(new THREE.Matrix4().copy(s.matrixWorld).invert());
+          bg.rotation.y = Math.atan2(t.x, t.z) + (k === 1 ? Math.PI : 0);
+          bg.userData.wheels.forEach((w2) => (w2.rotation.x = spin * (k === 1 ? -1 : 1)));
+        });
+        s.updateMatrixWorld();
+      }
+      // Токоприёмник задней секции поднят под контактный провод (сеть начинается за эстакадой налива).
+      const want = 0.3 + 0.8 * Math.min(1, Math.max(0, (sHead - 735) / 25));
+      const sp = secs[1].userData;
+      if (Math.abs(sp.panH - want) > 0.01) { sp.panH = want; sp.pan.userData.raise(want); }
+    
+      // === АНИМАЦИЯ НОВЫХ ДИНАМИЧЕСКИХ ЧАСТЕЙ ===
+      // Вентиляторы на крышах (вращаются пропорционально скорости/нагрузке)
+      const speedFactor = Math.min(1, Math.abs(sHead - (lastS - (sHead - lastS))) / 0.625 * 10); // грубая оценка скорости
+      for (const s of secs) {
+        if (s.userData.roof) {
+          s.userData.roof.traverse((obj) => {
+            if (obj.userData.type === 'fan' && obj.userData.blades) {
+              obj.userData.spin += dt * (5 + speedFactor * 25); // 5..30 рад/с
+              obj.userData.blades.rotation.y = obj.userData.spin;
+            }
+            // Пескоструйка — пульсация при движении
+            if (obj.userData.type === 'sand_nozzle') {
+              obj.scale.y = 1 + Math.sin(performance.now() * 0.01 + obj.userData.flip * Math.PI) * 0.1 * speedFactor;
+            }
+          });
+        }
+      }
+    
+      if (!inst) return;
     // Вагоны.
     for (let i = 0; i < cars; i++) {
       const c = sHead - LOCO_LEN - 0.3 - (i + 0.5) * CAR;

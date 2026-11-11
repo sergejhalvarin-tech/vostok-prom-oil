@@ -1,5 +1,5 @@
 // Облака: сотни мягких «клубов», нарисованных одной отрисовкой (инстансы-билборды, всегда лицом к камере).
-// Освещение закатное: сторона к солнцу тёплая и светлая, тень — сиреневая.
+// Освещение дневное: верх белый, низ — голубоватая тень.
 import * as THREE from 'three';
 
 function puffTexture() {
@@ -49,10 +49,10 @@ export function makeClouds(sunDir, {count = 170, area = [-2600, 5600, -3800, 380
     uniforms: {
       uTex: {value: puffTexture()},
       uSun: {value: sunDir.clone().normalize()},
-      uLit: {value: new THREE.Color(0xffd2a6)},
-      uGlow: {value: new THREE.Color(0xff9a5c)},
-      uShadow: {value: new THREE.Color(0x8d86a8)},
-      uFog: {value: new THREE.Color(0xd8c4b4)},
+      uLit: {value: new THREE.Color(0xffffff)},
+      uGlow: {value: new THREE.Color(0xfff4dc)},
+      uShadow: {value: new THREE.Color(0x9fb6d2)},
+      uFog: {value: new THREE.Color(0xc9dcea)},
       uTime: {value: 0},
     },
     vertexShader: /* glsl */ `

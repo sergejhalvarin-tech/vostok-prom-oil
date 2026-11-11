@@ -67,7 +67,7 @@ function plant(geo, mat, n, where, look) {
 }
 
 function colored(geo, color) {
-  const g = geo.toNonIndexed();
+  const g = geo.index ? geo.toNonIndexed() : geo;
   const c = new THREE.Color(color), arr = new Float32Array(g.attributes.position.count * 3);
   for (let i = 0; i < arr.length; i += 3) c.toArray(arr, i);
   g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
@@ -210,7 +210,7 @@ export function makeReef(timeU) {
   }));
 
   // --- красные корковые наросты и мелкие кустики ---
-  const tuft = mergeGeometries(Array.from({length: 7}, () => new THREE.IcosahedronGeometry(0.16 + rnd() * 0.12, 0).translate((rnd() - 0.5) * 0.5, rnd() * 0.15, (rnd() - 0.5) * 0.5).toNonIndexed()));
+  const tuft = mergeGeometries(Array.from({length: 7}, () => new THREE.IcosahedronGeometry(0.16 + rnd() * 0.12, 0).translate((rnd() - 0.5) * 0.5, rnd() * 0.15, (rnd() - 0.5) * 0.5)));
   group.add(plant(tuft, new THREE.MeshLambertMaterial({color: 0xffffff}), 900, onRock, (c) => {
     c.set([0x9e2a3c, 0x7a2c5e, 0xc0485a, 0xe6d8d0][Math.floor(rnd() * 4)]);
     return {s: 0.8 + rnd() * 1.4};

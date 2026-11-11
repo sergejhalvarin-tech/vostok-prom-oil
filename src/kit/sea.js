@@ -7,8 +7,8 @@ export function makeWater(sunDir, fogColor) {
   const uniforms = {
     uTime: {value: 0},
     uSun: {value: sunDir.clone().normalize()},
-    uDeep: {value: new THREE.Color(0x0a3f63)},
-    uSky: {value: new THREE.Color(0x8ea6c8)},
+    uDeep: {value: new THREE.Color(0x0c6684)},
+    uSky: {value: new THREE.Color(0xa6dcef)},
     uFog: {value: fogColor},
     uOpacity: {value: 0.8},
   };
@@ -41,9 +41,9 @@ export function makeWater(sunDir, fogColor) {
         float fr = pow(1.0 - max(dot(n, v), 0.0), 4.0);
         vec3 col = mix(uDeep, uSky, clamp(0.06 + fr * 0.9, 0.0, 1.0));
         vec3 hv = normalize(v + uSun);
-        col += vec3(1.0, 0.72, 0.42) * pow(max(dot(n, hv), 0.0), 260.0) * 2.2;
+        col += vec3(1.0, 0.95, 0.85) * pow(max(dot(n, hv), 0.0), 260.0) * 2.0;
         float d = length(cameraPosition - vW);
-        float f = smoothstep(800.0, 3400.0, d);
+        float f = clamp((d - 450.0) / 9050.0, 0.0, 1.0);
         col = mix(col, uFog, f);
         gl_FragColor = vec4(col, mix(uOpacity + fr * 0.2, 1.0, f));
         #include <tonemapping_fragment>
@@ -54,6 +54,12 @@ export function makeWater(sunDir, fogColor) {
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(9000, 9000, 220, 220).rotateX(-Math.PI / 2), mat);
   mesh.position.x = 900;
   mesh.renderOrder = 2;
+  // Открытое море до горизонта: крупная сетка чуть ниже (под ближней водой не видна).
+  const far = new THREE.Mesh(new THREE.PlaneGeometry(60000, 60000, 60, 60).rotateX(-Math.PI / 2), mat);
+  far.position.set(-12000, -0.4, 0);
+  far.renderOrder = 1;
+  mesh.add(far);
+  far.position.x -= 900;
   return {
     mesh,
     update: (t) => (uniforms.uTime.value = t),

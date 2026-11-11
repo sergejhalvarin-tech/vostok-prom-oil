@@ -35,15 +35,16 @@ export function createStage(vp, {cam, tgt, names = {}, onPick, pick = true} = {}
   controls.maxDistance = 3200;
   controls.maxPolarAngle = Math.PI * 0.485;
 
-  // Небо низкого полярного солнца + окружение для отражений.
+  // Небо: стилизованная панорама гор и облаков (FREE — SkyBox Mountain View © Paul, CC BY 4.0).
+  // Пока она грузится — процедурное дневное небо. Солнце стоит там же, где на панораме.
   const sky = new Sky();
   sky.scale.setScalar(12000);
   const su = sky.material.uniforms;
-  su.turbidity.value = 5.5;
-  su.rayleigh.value = 2.6;
-  su.mieCoefficient.value = 0.006;
-  su.mieDirectionalG.value = 0.93;
-  const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 7), THREE.MathUtils.degToRad(128));
+  su.turbidity.value = 2.2;
+  su.rayleigh.value = 1.2;
+  su.mieCoefficient.value = 0.004;
+  su.mieDirectionalG.value = 0.85;
+  const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 39), THREE.MathUtils.degToRad(128));
   su.sunPosition.value.copy(sunDir);
 
   const pmrem = new THREE.PMREMGenerator(renderer);
@@ -59,19 +60,34 @@ export function createStage(vp, {cam, tgt, names = {}, onPick, pick = true} = {}
   skyScene.add(sky);
   new THREE.CubeCamera(1, 20000, skyRT).update(renderer, skyScene);
   scene.background = skyRT.texture;
+  let skyTex = null;
+  new THREE.TextureLoader().load('textures/sky.webp', (t) => {
+    t.mapping = THREE.EquirectangularReflectionMapping;
+    t.colorSpace = THREE.SRGBColorSpace;
+    skyTex = t;
+    scene.backgroundRotation.set(0, -0.05, 0);
+    scene.environmentRotation.set(0, -0.05, 0);
+    const env = pmrem.fromEquirectangular(t);
+    scene.environment = env.texture;
+    if (medium === 'air') scene.background = t;
+  });
+  const airBg = () => skyTex || skyRT.texture;
 
-  const FOG = new THREE.Color(0xd9c3b3);
-  scene.fog = new THREE.Fog(FOG, 900, 3600);
+  // Голубая воздушная дымка: даль растворяется в цвете горизонта панорамы.
+  const FOG = new THREE.Color(0xc9dcea);
+  const FOG_NEAR = 450, FOG_FAR = 9500;
+  scene.fog = new THREE.Fog(FOG, FOG_NEAR, FOG_FAR);
 
-  // Солнце с тенью следует за точкой, на которую смотрит камера.
-  const sun = new THREE.DirectionalLight(0xffb878, 3.6);
+  // Солнце с тенью следует за точкой, на которую смотрит камера. Свет тёплый, тени — голубые от неба.
+  const SUN_C = 0xfff0d2, HEMI_SKY = 0xbfe2ff, HEMI_GROUND = 0x557a3a;
+  const sun = new THREE.DirectionalLight(SUN_C, 3.1);
   sun.castShadow = true;
   sun.shadow.mapSize.set(1536, 1536);
   Object.assign(sun.shadow.camera, {left: -260, right: 260, top: 260, bottom: -260, near: 10, far: 1600});
   sun.shadow.bias = -0.0003;
   sun.shadow.normalBias = 0.5;
   scene.add(sun, sun.target);
-  const hemi = new THREE.HemisphereLight(0xffd9c0, 0x3b4660, 0.85);
+  const hemi = new THREE.HemisphereLight(HEMI_SKY, HEMI_GROUND, 1.25);
   scene.add(hemi);
   const clouds = makeClouds(sunDir);
   scene.add(clouds.mesh);
@@ -91,13 +107,13 @@ export function createStage(vp, {cam, tgt, names = {}, onPick, pick = true} = {}
     if (m === medium) return;
     medium = m;
     clouds.mesh.visible = m === 'air';
-    if (m === 'air') { scene.background = skyRT.texture; scene.fog.color.copy(FOG); scene.fog.near = 900; scene.fog.far = 3600; }
+    if (m === 'air') { scene.background = airBg(); scene.fog.color.copy(FOG); scene.fog.near = FOG_NEAR; scene.fog.far = FOG_FAR; }
     if (m === 'water') { scene.background = UW; scene.fog.color.copy(UW); scene.fog.near = 4; scene.fog.far = 175; }
     // Под водой красный свет поглощается: солнце и небо становятся сине-зелёными.
-    sun.color.set(m === 'water' ? 0xbfeff2 : 0xffb878);
-    sun.intensity = m === 'water' ? 2.2 : 3.6;
-    hemi.color.set(m === 'water' ? 0x9fe6ee : 0xffd9c0);
-    hemi.groundColor.set(m === 'water' ? 0x1d4a52 : 0x3b4660);
+    sun.color.set(m === 'water' ? 0xbfeff2 : SUN_C);
+    sun.intensity = m === 'water' ? 2.2 : 3.1;
+    hemi.color.set(m === 'water' ? 0x9fe6ee : HEMI_SKY);
+    hemi.groundColor.set(m === 'water' ? 0x1d4a52 : HEMI_GROUND);
     if (m === 'rock') { scene.background = DEEP; scene.fog.color.copy(DEEP); scene.fog.near = 900; scene.fog.far = 5000; }
   }
   const seabed = new THREE.Mesh(

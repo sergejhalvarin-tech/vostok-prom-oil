@@ -10,6 +10,15 @@ function colored(geo, color) {
   if (g.attributes.uv) g.deleteAttribute('uv');
   return g;
 }
+// Мягкие «облачные» нормали: от центра кроны наружу (с подъёмом вверх) — живописная заливка без граней.
+function soften(g, cx, cy, cz, up = 0.35) {
+  const p = g.attributes.position, n = g.attributes.normal, v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.set(p.getX(i) - cx, (p.getY(i) - cy) + up, p.getZ(i) - cz).normalize();
+    n.setXYZ(i, v.x, v.y, v.z);
+  }
+  return g;
+}
 function merge(parts) {
   const n = parts.reduce((a, p) => a + p.attributes.position.count, 0);
   const P = new Float32Array(n * 3), N = new Float32Array(n * 3), C = new Float32Array(n * 3);
@@ -30,10 +39,10 @@ function merge(parts) {
 // Ель: ствол и четыре яруса хвои (крона белая — цвет задаёт инстанс).
 const SPRUCE = merge([
   colored(new THREE.CylinderGeometry(0.25, 0.4, 2.4, 5).translate(0, 1.2, 0), 0x5a3b22),
-  colored(new THREE.ConeGeometry(2.7, 5.4, 8).translate(0, 4.2, 0), 0xffffff),
-  colored(new THREE.ConeGeometry(2.1, 4.6, 8).translate(0, 6.8, 0), 0xffffff),
-  colored(new THREE.ConeGeometry(1.4, 3.8, 8).translate(0, 9.2, 0), 0xffffff),
-  colored(new THREE.ConeGeometry(0.7, 2.4, 6).translate(0, 11.2, 0), 0xffffff),
+  soften(colored(new THREE.ConeGeometry(2.7, 5.4, 8).translate(0, 4.2, 0), 0xffffff), 0, 5.5, 0, 1.2),
+  soften(colored(new THREE.ConeGeometry(2.1, 4.6, 8).translate(0, 6.8, 0), 0xffffff), 0, 7.6, 0, 1.2),
+  soften(colored(new THREE.ConeGeometry(1.4, 3.8, 8).translate(0, 9.2, 0), 0xffffff), 0, 9.8, 0, 1.2),
+  soften(colored(new THREE.ConeGeometry(0.7, 2.4, 6).translate(0, 11.2, 0), 0xffffff), 0, 11.5, 0, 1.2),
 ]);
 // Берёза/осина: светлый ствол, пышная крона из нескольких «облаков».
 const BIRCH = (() => {
@@ -42,13 +51,12 @@ const BIRCH = (() => {
     const g = new THREE.IcosahedronGeometry(r, 0).translate(x, y, z);
     const p = g.attributes.position;
     for (let i = 0; i < p.count; i++) p.setXYZ(i, p.getX(i) * (0.92 + Math.random() * 0.16), p.getY(i) * (0.9 + Math.random() * 0.2), p.getZ(i) * (0.92 + Math.random() * 0.16));
-    g.computeVertexNormals();
-    parts.push(colored(g, 0xffffff));
+    parts.push(soften(colored(g, 0xffffff), 0, 6.8, 0, 0.6));
   }
   return merge(parts);
 })();
 // Кустарник (карликовая берёза, ивняк) — низкие пышные кочки.
-const SHRUB = merge([0, 1, 2].map((k) => colored(new THREE.IcosahedronGeometry(0.9 + k * 0.2, 0).translate(k * 0.8 - 0.8, 0.5, (k % 2) * 0.6), 0xffffff)));
+const SHRUB = merge([0, 1, 2].map((k) => soften(colored(new THREE.IcosahedronGeometry(0.9 + k * 0.2, 1).translate(k * 0.8 - 0.8, 0.5, (k % 2) * 0.6), 0xffffff), 0, 0, 0.3, 0.4)));
 // Камень: деформированный многогранник.
 const ROCK = (() => {
   const g = new THREE.IcosahedronGeometry(1, 1);
@@ -62,12 +70,13 @@ const ROCK = (() => {
 })();
 
 // Дальние упрощённые варианты (LOD): тот же масштаб и цвет инстанса.
-const SPRUCE_LO = colored(new THREE.ConeGeometry(2.6, 11, 6, 1, true).translate(0, 6.2, 0), 0xffffff);
-const BIRCH_LO = colored(new THREE.IcosahedronGeometry(2.9, 0).scale(1, 1.15, 1).translate(0, 7, 0), 0xffffff);
+const SPRUCE_LO = soften(colored(new THREE.ConeGeometry(2.6, 11, 6, 1, true).translate(0, 6.2, 0), 0xffffff), 0, 6.5, 0, 2);
+const BIRCH_LO = soften(colored(new THREE.IcosahedronGeometry(2.9, 0).scale(1, 1.15, 1).translate(0, 7, 0), 0xffffff), 0, 6.6, 0, 0.5);
 const ROCK_LO = colored(new THREE.IcosahedronGeometry(1, 0).scale(1, 0.8, 1), 0xffffff);
 
-const AUTUMN = [0xe8b02a, 0xf0c534, 0xe0761e, 0xc9481f, 0xb8d23a, 0x6aa33a];
-const CONIFER = [[0.34, 0.5, 0.13], [0.31, 0.48, 0.11], [0.37, 0.42, 0.16], [0.29, 0.4, 0.14]];
+// Сочная летняя листва с редкими золотыми и рыжими кронами.
+const AUTUMN = [0x8fd14f, 0x6cc23e, 0xa6d84a, 0x4fae3c, 0x7bc95a, 0xc5dd52, 0xf0c534, 0xe8902a];
+const CONIFER = [[0.36, 0.55, 0.2], [0.33, 0.6, 0.17], [0.4, 0.5, 0.22], [0.31, 0.5, 0.19]];
 
 // spec: {x0, x1, z0, z1, heightAt, accept(x, z, y), conifers, broadleaf, shrubs, rocks}
 export function makeVegetation(spec) {
@@ -98,9 +107,9 @@ export function makeVegetation(spec) {
   scatter(spec.broadleaf, 'birch', (x, z, y, sl) => sl < 0.6 && y < 200 && grove(x + 400, z) > -0.2, () => 0.8 + rnd() * 0.9,
     () => new THREE.Color(AUTUMN[Math.floor(rnd() * AUTUMN.length)]).offsetHSL(0, 0.05, (rnd() - 0.5) * 0.08));
   scatter(spec.shrubs, 'shrub', (x, z, y, sl) => sl < 0.5 && y < 220, () => 0.8 + rnd() * 1.6,
-    () => new THREE.Color([0xc9481f, 0xe0761e, 0xb8432a, 0x8a9a2a, 0xd9a03a][Math.floor(rnd() * 5)]));
+    () => new THREE.Color([0x6cbf3e, 0x8fd14f, 0x4f9e3a, 0xb6d24a, 0xe0a83a][Math.floor(rnd() * 5)]));
   scatter(spec.rocks, 'rock', (x, z, y, sl) => sl > 0.32 || rnd() < 0.12, () => (rnd() < 0.15 ? 9 + rnd() * 22 : 1.5 + rnd() * 6),
-    () => new THREE.Color().setHSL(0.08 + rnd() * 0.05, 0.08 + rnd() * 0.1, 0.36 + rnd() * 0.2), 30);
+    () => new THREE.Color().setHSL(0.07 + rnd() * 0.05, 0.12 + rnd() * 0.1, 0.3 + rnd() * 0.14), 30);
 
   const group = new THREE.Group();
   const geos = {spruce: SPRUCE, birch: BIRCH, shrub: SHRUB, rock: ROCK};
@@ -136,7 +145,7 @@ export function makeVegetation(spec) {
         lo.visible = false;
         group.add(lo);
       }
-      meshes.push({im, lo, ch, near: type === 'shrub' ? 1100 : 1250, far: type === 'shrub' ? 0 : type === 'rock' ? 2400 : 3100});
+      meshes.push({im, lo, ch, near: type === 'shrub' ? 1100 : 1250, far: type === 'shrub' ? 0 : type === 'rock' ? 3000 : 4600});
     }
   }
   return {

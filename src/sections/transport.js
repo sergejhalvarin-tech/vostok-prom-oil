@@ -174,7 +174,7 @@ function build(stage, api) {
     // Поезд: на нефтебазе, в пути (по кругу через мост и виадук) или у сливной эстакады НПЗ.
     const mode = STEPS[api.step()]?.train;
     if (mode === 'move') trainT += dt;
-    w.setTrain(mode === 'move' ? 2200 + (trainT * 28) % 1100 : mode === 'stop' ? w.S_STOP : w.S_LOAD);
+    w.setTrain(mode === 'move' ? 2200 + (trainT * 28) % 1100 : mode === 'stop' ? w.S_STOP : w.S_LOAD, dt);
 
     w.targets.forEach((tk, i) => {
       const html = `<b>Р-${tk.ri + 1}</b> ${Math.round(info.levels[i] * 100)}%`;
@@ -188,6 +188,9 @@ function build(stage, api) {
     if (si !== lastStep && si !== api.step() && !(STEPS[api.step()]?.t0 > T_END)) api.go(si, {byUser: false});
     lastStep = si;
 
+    // Табло танкера — только на шагах рейса.
+    const shipStep = !(STEPS[api.step()]?.t0 > T_END);
+    if (hud.style.display !== (shipStep ? '' : 'none')) hud.style.display = shipStep ? '' : 'none';
     const h = `<b>${info.status}</b><span>Скорость <i>${info.knots} уз</i></span><span>Груз <i>${info.cargo.toFixed(1)} тыс. т</i></span>`;
     if (h !== lastHud) { hud.innerHTML = h; lastHud = h; }
   });

@@ -9,8 +9,8 @@ import {buildTerminal, makeMooring, BERTH, ARM_Z} from './terminal.js';
 import {makeTug} from './tug.js';
 import {makeCrew} from './crew.js';
 import {mergeStatic} from '../kit/merge.js';
-import {buildMainline, buildStations, buildDepot} from './pipeline.js';
-import {makeCoast} from './landscape.js';
+import {buildMainline, buildStations, buildDepot, buildPowerTrunk} from './pipeline.js';
+import {makeCoast, makeFarLand} from './landscape.js';
 import {makeFauna} from './fauna.js';
 import {buildRailway} from './railway.js';
 import {buildRefinery} from './refinery.js';
@@ -207,6 +207,7 @@ export function buildVoyageWorld(stage) {
   const inland = new THREE.Group();
   const lineG = new THREE.Group(), stG = new THREE.Group(), depG = new THREE.Group();
   const mainline = buildMainline(lineG);
+  buildPowerTrunk(lineG);
   const stations = buildStations(stG);
   const depot = buildDepot(depG);
   // Каждую НПС — в свою группу (по положению), чтобы далёкие не рисовались.
@@ -231,6 +232,8 @@ export function buildVoyageWorld(stage) {
   // Железная дорога к НПЗ: восточная долина с каньоном и хребтом, путь, мосты, терминал завода, поезд.
   const eastLand = makeCoast({x0: 14900, x1: 18900, seg: 151, density: {conifers: 9500, broadleaf: 5500, shrubs: 4000, rocks: 2600}});
   stage.scene.add(eastLand);
+  const farLand = makeFarLand();
+  stage.scene.add(farLand);
   const rail = new THREE.Group(), refG = new THREE.Group();
   buildRailway(rail, {sFrom: 720});
   const S_STOP = getRail().len - 62;
@@ -342,17 +345,21 @@ export function buildVoyageWorld(stage) {
     lineG.visible = cx < MAIN_END + 3600;
     train.setExtras(Math.hypot(DEPOT.x - cx, DEPOT.z - cz) < 3200);
     // Далёкие площадки (за туманом) не рисуются.
-    for (const c of culls) c.g.visible = Math.hypot(c.x - cx, c.z - cz) < 3600 + c.r;
+    for (const c of culls) c.g.visible = Math.hypot(c.x - cx, c.z - cz) < 5200 + c.r;
     term.mountains.userData.update(camera.position);
     valley.userData.update(camera.position);
     fauna.update(camera.position);
     const east = camera.position.x > 9000;
     rail.visible = eastLand.visible = train.group.visible = east;
+    // Под водой и в разрезе пластов суша не видна — не рисуем её.
+    const dry = camera.position.y > -1;
+    farLand.visible = valley.visible = inland.visible = dry;
+    if (!dry) { term.mountains.visible = false; rail.visible = eastLand.visible = train.group.visible = false; }
     if (east) eastLand.userData.update(camera.position);
   };
   // Поезд: голова на пути s; у НПЗ — слив нефти.
   let trainS = DEPOT_RACK.sHead;
-  const setTrain = (s) => { if (s !== trainS || !train.placed) { trainS = s; train.place(s); train.placed = true; } refFlow.mesh.visible = s >= S_STOP - 0.5; };
+  const setTrain = (s, dt = 0) => { if (s !== trainS || !train.placed) { trainS = s; train.place(s, dt); train.placed = true; } refFlow.mesh.visible = s >= S_STOP - 0.5; };
   stage.onFrame((dt) => { refinery.update(performance.now() / 1000); if (refFlow.mesh.visible) refFlow.update(dt); });
 
   return {tanker, plan, ice, targets, update, load, cullShore, stations, depot, fauna, train, setTrain, S_STOP, S_LOAD: DEPOT_RACK.sHead, resetWake: () => wake.reset()};

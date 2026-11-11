@@ -5,7 +5,7 @@
 //  • нефтебаза: резервуары, обвязка, служебные здания, молниеотводы, железнодорожная эстакада налива
 //    с галереей, наливными устройствами, шкафами и составом цистерн.
 import * as THREE from 'three';
-import {heightAt, pipeZ, MAIN, STATIONS, DEPOT, RAIL_PTS} from './landscape.js';
+import {heightAt, pipeZ, MAIN, STATIONS, DEPOT, RAIL_PTS, riverLevel} from './landscape.js';
 import {pipe, valve, buildPumpStation, buildLightningRod, routePoints, FARM_MAT as M} from './tankfarm.js';
 import {makeTank} from './terminal.js';
 import {FM, building, substation, powerLine, fireStation, filters, vessel, lightMast, roads, truck} from './facilities.js';
@@ -152,7 +152,10 @@ export function buildStations(p) {
     cyl(p, 0.7, 24, M.grey, st.x + 30, y + 12, st.z + 62, k);
     // Подстанция и ЛЭП.
     substation(p, {x: st.x - 96, y, z: st.z + 48, key: k});
-    powerLine(p, [L(-96, 64), L(-96, 230), L(-70, 420), L(-30, 640)].map(([x, z], i) => [x, i ? heightAt(x, z) : y, z]), k);
+    {                                                                                              // отпайка от ВЛ 110 кВ
+      const tx = st.x - 96, tz = pipeZ(tx) + 190, dir = Math.atan2(pipeZ(tx + 300) - pipeZ(tx - 300), 600);
+      powerLine(p, [[tx, y, st.z + 66], [tx, heightAt(tx, tz), tz]], k, {skip: [1], ry: {1: Math.PI / 2 - dir + Math.PI / 2}});
+    }
     // Операторная, пожарная насосная с резервуарами.
     building(p, {x: st.x + 64, y, z: st.z + 52, w: 30, d: 14, h: 8, key: k, floors: 2});
     fireStation(p, {x: st.x + 118, y, z: st.z + 34, key: k});
@@ -311,4 +314,25 @@ export function buildDepot(p) {
   const empties = [];
   for (let i = 0; i < 14; i++) empties.push({x: cx - 200 + i * CAR, y: y + RAIL_TOP + 0.08, z: TZ + 14, yaw: Math.PI / 2});
   return {flow, rackZ: TZ, y, empties};
+}
+
+// ======================================================================
+// ВЛ 110 кВ вдоль трассы: питает головную насосную и все НПС, опоры через ~300 м по рельефу
+// (не в русле реки), у каждой НПС — опора напротив подстанции для отпайки.
+export function buildPowerTrunk(p) {
+  const k = 'power', xs = [];
+  for (let x = 2620; x < DEPOT.x - DEPOT.w / 2 - 60; x += 300) xs.push(x);
+  for (const st of STATIONS) {
+    const sx = st.x - 96;
+    for (let i = xs.length - 1; i >= 0; i--) if (Math.abs(xs[i] - sx) < 150) xs.splice(i, 1);
+    xs.push(sx);
+  }
+  xs.sort((a, b) => a - b);
+  const towers = xs.map((x) => {
+    let xx = x;
+    const zAt = (q) => pipeZ(q) + 190;
+    for (let t = 0; t < 8 && heightAt(xx, zAt(xx)) < riverLevel(xx) + 2 && xx > 5500; t++) xx += 25;     // не ставить в воду
+    return [xx, heightAt(xx, zAt(xx)), zAt(xx)];
+  });
+  powerLine(p, towers, k);
 }

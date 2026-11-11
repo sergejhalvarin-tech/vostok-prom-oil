@@ -2,7 +2,7 @@
 // Фигуры низкополигональные, но с правильным силуэтом; ноги ходят, головы опускаются к воде и траве.
 // Рисуются только когда камера за хребтом (x > 4500).
 import * as THREE from 'three';
-import {heightAt, riverZ, riverLevel, LAKES, STATIONS} from './landscape.js';
+import {heightAt, riverZ, riverLevel, LAKES, STATIONS, lakeQ} from './landscape.js';
 
 const S = 2.2; // животные чуть крупнее натуры, чтобы читались с вертолёта
 const mat = (c, r = 0.85) => new THREE.MeshStandardMaterial({color: c, roughness: r});
@@ -162,7 +162,11 @@ export function makeFauna() {
   const wz = riverZ(5450) + 70;
   add(BEAR, 5450, wz, {kind: 'patrol', path: [[5380, wz - 10], [5560, wz + 30]], speed: 1.6});
   // 3. Олень на скале над озером.
-  const L1 = LAKES[0], cx = L1.x - 120, cz = L1.z + L1.r / 1.25 + 40;
+  // Скала — на скальном берегу озера (там, где берег встаёт стеной).
+  const L1 = LAKES[0];
+  let tq = L1.r * 0.5;
+  while (lakeQ(L1, L1.x + Math.cos(L1.cliffA) * tq, L1.z + Math.sin(L1.cliffA) * tq) < 1.18) tq += 4;
+  const cx = L1.x + Math.cos(L1.cliffA) * tq, cz = L1.z + Math.sin(L1.cliffA) * tq;
   const c = crag(cx, cz, 34);
   group.add(c.group);
   add(DEER, cx, cz, {kind: 'stand', heading: Math.PI * 0.9, fixedY: c.top});
@@ -188,7 +192,7 @@ export function makeFauna() {
     bear: actors[0], deerCliff: actors[2], herd: actors[3], fox: actors[actors.length - 2], flock,
   };
 
-  const clock = new THREE.Clock();
+  let last = performance.now();
   let tt = 0;
   const step = (st, dt) => {
     const {a} = st, ud = a.userData;
@@ -232,7 +236,7 @@ export function makeFauna() {
   return {
     group, spots,
     update(cam) {
-      const dt = Math.min(clock.getDelta(), 0.1);
+      const now = performance.now(), dt = Math.min((now - last) / 1000, 0.1); last = now;
       group.visible = cam.x > 4500 && cam.x < 12500;
       if (!group.visible) return;
       tt += dt;

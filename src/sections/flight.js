@@ -1,4 +1,4 @@
-// Главный экран: облёт с борта вертолёта от первого лица по всем готовым этапам пути нефти.
+// Главный экран: съёмка с дрона — быстрый детальный облёт по всем готовым этапам пути нефти.
 // Камера идёт по ключевым кадрам (сплайн Эрмита с касательными по времени), часть кадров привязана
 // к движущемуся танкеру. Мир рейса живёт по своему времени, которое пересчитывается из времени облёта.
 import * as THREE from 'three';
@@ -7,7 +7,7 @@ import {buildVoyageWorld} from './voyage-world.js';
 import {makeSection} from './geology.js';
 import {makeSeaLife} from './sealife.js';
 import {makeNarration} from './narration.js';
-import {heightAt, pipeZ, STATIONS, DEPOT, getRail, railAt} from './landscape.js';
+import {heightAt, pipeZ, STATIONS, DEPOT, getRail, railAt, LAKES, lakeQ, riverZ, riverLevel} from './landscape.js';
 import {DEPOT_RACK} from './pipeline.js';
 
 // Точка над рельефом: [x, высота земли + dy, z].
@@ -47,6 +47,27 @@ const CHAPTERS = [
 ];
 const F_END = 303, F_CARD = 297;
 
+// Темп съёмки: каждая глава идёт не дольше нужного — длинные перелёты ускорены (но не короче озвучки).
+const VOICE = [13.4, 17.7, 13.2, 13.2, 12.3, 22.6, 13.8, 13.7, 15.6, 15.1, 11.9, 18.2, 15.7];
+const WARP = (() => {
+  const pts = [[0, 0]];
+  let T = 0;
+  CHAPTERS.forEach((c, i) => {
+    const D = (CHAPTERS[i + 1]?.t ?? F_CARD) - c.t;
+    T += Math.min(D, Math.max((VOICE[i] ?? 10) + 1.3, D * 0.5));
+    pts.push([T, CHAPTERS[i + 1]?.t ?? F_CARD]);
+  });
+  pts.push([T + (F_END - F_CARD), F_END]);
+  return pts;
+})();
+const T_END = WARP[WARP.length - 1][0];
+const lerpTab = (tab, v, a, b) => {
+  for (let i = 1; i < tab.length; i++) if (v <= tab[i][a]) { const p = tab[i - 1], q = tab[i]; return p[b] + (q[b] - p[b]) * (v - p[a]) / ((q[a] - p[a]) || 1); }
+  return tab[tab.length - 1][b];
+};
+const storyAt = (T) => lerpTab(WARP, T, 0, 1);
+const realAt = (F) => lerpTab(WARP, F, 1, 0);
+
 // Поезд: путь головы состава как функция времени облёта (монотонный кубический сплайн).
 const S_LOAD = DEPOT_RACK.sHead, S_STOP = getRail().len - 62;
 const TS = [[0, S_LOAD], [229, S_LOAD], [234, S_LOAD + 50], [240, S_LOAD + 300], [246, 1290], [252, 1830], [258, 2350], [264, 2950], [270, 3600],
@@ -68,6 +89,9 @@ const trainS = (() => {
     return (2 * t3 - 3 * t2 + 1) * y0 + (t3 - 2 * t2 + t) * h * m[i] + (-2 * t3 + 3 * t2) * y1 + (t3 - t2) * h * m[i + 1];
   };
 })();
+// Над рекой у моста: вдоль русла на dx от моста, на h над водой.
+const BRIDGE_X = railAt(1730).x;
+const overRiver = (dx, h) => { const x = BRIDGE_X + dx; return [x, riverLevel(x) + h, riverZ(x)]; };
 // Точка у пути: s — по оси, d — поперёк (м), h — над полотном.
 const rp = (s, d = 0, h = 0) => { const a = railAt(s); return [a.x + a.tz * d, a.y + h, a.z - a.tx * d]; };
 
@@ -91,9 +115,11 @@ export function mountFlight(root, sec, next) {
         <div class="fl-under" id="under"></div>
         <div class="fl-frame"></div>
         <div class="fl-hud" id="hud">
-          <div class="fl-tape"><div class="fl-tape-in" id="tape"></div><i class="fl-tape-mark"></i><b id="hdg">000</b></div>
-          <div class="fl-gauge fl-left"><small>ВЫСОТА</small><b id="alt">0</b><small>м</small></div>
-          <div class="fl-gauge fl-right"><small>СКОРОСТЬ</small><b id="spd">0</b><small>км/ч</small></div>
+          <div class="osd osd-tl"><i class="rec"></i>REC <b id="rec">00:00</b><span>4K · 60</span></div>
+          <div class="osd osd-tr"><span>GPS ▮▮▮▮ 18</span><span class="bat"><i id="batBar"></i></span><b id="bat">98</b>%</div>
+          <div class="osd osd-bl"><span>H</span><b id="alt">0</b>м<span>D</span><b id="dist">0.0</b>км</div>
+          <div class="osd osd-br"><span>H.S</span><b id="spd">0</b>км/ч<span>V.S</span><b id="vs">0.0</b>м/с</div>
+          <div class="osd-grid"></div>
           <div class="fl-cap" id="cap"></div>
         </div>
         <div class="fl-bar" id="bar">
@@ -109,7 +135,7 @@ export function mountFlight(root, sec, next) {
           <div class="fl-intro-in">
             <div class="fl-brand"><span class="brand-drop"></span>ВОСТОК<b>ПРОМ</b>ОЙЛ</div>
             <h1>Путь нефти</h1>
-            <p>Облёт с борта вертолёта: от арктической платформы на шельфе до нефтеперерабатывающего завода: море, терминал, магистраль, нефтебаза и железная дорога. Около пяти минут.</p>
+            <p>Съёмка с дрона: от арктической платформы на шельфе до нефтеперерабатывающего завода — море, терминал, магистраль, нефтебаза и железная дорога. Около четырёх минут.</p>
             <div class="fl-start">
               <button class="fl-go" id="bGo" disabled><span id="goText">Загрузка 0%</span></button>
               <label class="fl-snd"><input type="checkbox" id="cSound" checked> с озвучкой диктора</label>
@@ -129,7 +155,7 @@ export function mountFlight(root, sec, next) {
               <a class="fl-btn2" href="#shelf">Этапы подробно</a>
               <button class="fl-btn2" id="bReplay">Повторить облёт ↺</button>
             </div>
-            <p class="fl-credits">3D-модели «МЛСП Приразломная» © Lightproduction, «Tanker Ship» © KoreanNavy, «Вагон цистерна для поезда» © mamont nikita — CC BY 4.0 (Sketchfab).</p>
+            <p class="fl-credits">3D-модели «МЛСП Приразломная» © Lightproduction, «Tanker Ship» © KoreanNavy, «Вагон цистерна для поезда» © mamont nikita, небо «FREE — SkyBox Mountain View» © Paul — CC BY 4.0 (Sketchfab).</p>
           </div>
         </div>
       </div>
@@ -139,7 +165,7 @@ export function mountFlight(root, sec, next) {
 
   const stage = createStage(vp, {cam: [-64, 42.5, -64], tgt: [30, 60, 25], pick: false});
   let dbg = null;
-  if (location.hostname === 'localhost') { window.__stage = stage; window.__fl = {jump: (f) => jump(f), pause: () => { paused = true; }, look: (p, l) => { dbg = p ? [V(...p), V(...l)] : null; }}; } // для отладки
+  if (location.hostname === 'localhost') { window.__stage = stage; window.__fl = {scan: () => { const out = []; const q = V(0, 0, 0); for (let f = 0; f < F_END; f += 0.25) { if (f > 33 && f < 66) continue; sample(f, 'p', q); let g = -1e9; for (const [dx, dz] of [[0, 0], [14, 0], [-14, 0], [0, 14], [0, -14]]) g = Math.max(g, heightAt(q.x + dx, q.z + dz)); if (q.y < g + 7) out.push([f, Math.round(g + 7 - q.y)]); } return out; }, jump: (f) => jump(f), pause: () => { paused = true; }, look: (p, l) => { dbg = p ? [V(...p), V(...l)] : null; }}; } // для отладки
   const camera = stage.camera;
   camera.fov = 55;
   camera.updateProjectionMatrix();
@@ -154,6 +180,13 @@ export function mountFlight(root, sec, next) {
   // ---------- ключевые кадры ----------
   const rel = (x, y, z) => () => world.tanker.localToWorld(V(x, y, z));
   const tankerAt = (dy = 10) => () => world.tanker.localToWorld(V(0, dy, 20));
+  // Олень на скале у озера: камера с суши, за оленем — озеро.
+  const deerShot = (cam) => {
+    const d = world.fauna.spots.deerCliff, lk = LAKES[0];
+    const ux = d.x - lk.x, uz = d.z - lk.z, n = Math.hypot(ux, uz);
+    const y = d.fixedY ?? heightAt(d.x, d.z);
+    return cam ? [d.x + (ux / n) * 60, y + 14, d.z + (uz / n) * 60] : [d.x - (ux / n) * 25, y + 2, d.z - (uz / n) * 25];
+  };
   const K = [
     {t: 0, p: [-64, 42.5, -64], l: [30, 60, 25]},
     {t: 4, p: [-64, 47, -64], l: [30, 62, 25]},
@@ -194,10 +227,12 @@ export function mountFlight(root, sec, next) {
     {t: 176, p: above(4100, 520, 120), l: above(4800, pipeZ(4800), 40)},
     {t: 181.5, p: above(5566, 604, 16), l: above(5612, 548, 1.5)},
     {t: 187, p: above(6380, 600, 40), l: above(6540, 650, 4)},
-    {t: 192.5, p: [7552, 113, -1112], l: [7590, 104, -1290]},
+    {t: 192.5, p: deerShot(1), l: deerShot(0)},
     {t: 196.5, p: above(8050, -300, 150), l: above(8600, 400, 20)},
     {t: 200.5, p: above(8630, 470, 26), l: above(8700, 600, 2)},
-    {t: 205, p: above(9760, 150, 80), l: [9840, 55, 305]},
+    {t: 201.7, p: above(8850, 760, 24), l: [9050, 58, riverZ(9050)]},
+    {t: 202.8, p: [9010, 67, riverZ(9010)], l: [9330, 61, riverZ(9330)]},
+    {t: 205.5, p: above(9760, 150, 80), l: [9840, 55, 305]},
     {t: 210, p: above(11050, 300, 65), l: above(STATIONS[2].x, STATIONS[2].z, 4)},
     {t: 215.5, p: above(13250, 330, 110), l: above(DEPOT.x, DEPOT.z, 0)},
     {t: 220.5, p: above(13560, 815, 22), l: above(13760, DEPOT.z + 170, 6)},
@@ -205,11 +240,12 @@ export function mountFlight(root, sec, next) {
     {t: 229.5, p: rp(S_LOAD + 26, 15, 6), l: rp(S_LOAD - 12, 0, 3)},
     {t: 235, p: rp(trainS(235) + 26, -17, 8), l: rp(trainS(235) - 18, 0, 3)},
     {t: 241, p: rp(trainS(241) + 120, 46, 32), l: rp(trainS(241) - 70, 0, 2)},
-    {t: 246.5, p: rp(1560, -150, 4), l: rp(1700, 0, -6)},
-    {t: 251, p: rp(1720, -118, -14), l: rp(trainS(251) - 140, 0, 4)},
+    {t: 246.5, p: overRiver(-330, 26), l: rp(1730, 0, -6)},
+    {t: 251, p: overRiver(-250, 17), l: rp(trainS(251) - 140, 0, 4)},
     {t: 256.5, p: rp(trainS(256.5) + 210, 70, 75), l: rp(trainS(256.5), 0, 0)},
     {t: 261.5, p: rp(2840, -150, -50), l: rp(2840, 0, -14)},
     {t: 265.5, p: rp(2860, -105, -28), l: rp(trainS(265.5) - 110, 0, 2)},
+    {t: 268, p: above(16600, 860, 55), l: [16935, 70, 1060]},
     {t: 270.5, p: [16935, 82, 1010], l: rp(trainS(270.5) - 90, 0, 3)},
     {t: 276, p: rp(trainS(276) + 260, -90, 62), l: rp(trainS(276), 0, 0)},
     {t: 282, p: [17330, 196, 790], l: [17880, 112, 280]},
@@ -264,6 +300,7 @@ export function mountFlight(root, sec, next) {
   tag('Бурый медведь', onA(fa.bear, 6), 178.5, 184.5);
   tag('Лисы', onA(fa.fox, 3), 184.5, 189.5);
   tag('Северный олень на скале', onA(fa.deerCliff, 7), 189.5, 195);
+  tag('Утёсы над рекой', () => V(9250, 92, riverZ(9250) + 50), 201.5, 205);
   tag('Стадо северных оленей', onA(fa.herd, 7), 198, 203.5);
   tag('Нефтебаза · ≈600 км', () => V(DEPOT.x - 150, heightAt(DEPOT.x, DEPOT.z) + 40, DEPOT.z - 100), 211, 226);
   tag('Эстакада налива в цистерны', () => V(13700, heightAt(13700, DEPOT.z + 175) + 16, DEPOT.z + 175), 215, 228);
@@ -290,10 +327,11 @@ export function mountFlight(root, sec, next) {
   chBtns.forEach((b) => (b.onclick = () => jump(CHAPTERS[+b.dataset.i].t)));
 
   // ---------- состояние полёта ----------
-  let F = 0, started = false, paused = false, chapter = -1;
+  let F = 0, T = 0, started = false, paused = false, chapter = -1;
   let yawOff = 0, pitchOff = 0, dragging = null;
-  let roll = 0, yawPrev = null, yawRate = 0, spdSmooth = 0;
+  let roll = 0, yawPrev = null, yawRate = 0, spdSmooth = 0, clear = 0, vsSmooth = 0;
   const P = V(0, 0, 0), Lk = V(0, 0, 0), prevPos = V(-64, 42.5, -64), fwd = V(0, 0, 0);
+  let prevY = 42.5;
   const voice = makeNarration();
   let finaleSaid = false;
 
@@ -301,6 +339,7 @@ export function mountFlight(root, sec, next) {
 
   function jump(f) {
     F = clamp(f, 0, F_END);
+    T = realAt(F);
     world.resetWake();
     yawPrev = null;
     if (!started) start();
@@ -325,7 +364,7 @@ export function mountFlight(root, sec, next) {
     $('bSound').classList.toggle('on', on);
   }
 
-  $('bGo').onclick = () => { F = 0; chapter = -1; start(); };
+  $('bGo').onclick = () => { F = 0; T = 0; chapter = -1; start(); };
   $('bPause').onclick = () => {
     paused = !paused;
     $('bPause').textContent = paused ? '▶' : '❚❚';
@@ -347,17 +386,9 @@ export function mountFlight(root, sec, next) {
   addEventListener('pointermove', onMove);
   addEventListener('pointerup', onUp);
 
-  // Лента курса.
-  const tape = $('tape');
-  tape.innerHTML = Array.from({length: 109}, (_, i) => {
-    const deg = i * 10 - 360, d = ((deg % 360) + 360) % 360;
-    const lab = {0: 'С', 90: 'В', 180: 'Ю', 270: 'З'}[d] ?? (d % 30 === 0 ? String(d) : '');
-    return `<span style="left:${(deg + 360) * 4}px" class="${lab ? 'big' : ''}">${lab}</span>`;
-  }).join('');
-
   // ---------- кадр ----------
   stage.onFrame((dt, wall) => {
-    if (started && !paused) F = Math.min(F_END, F + dt);
+    if (started && !paused) { T = Math.min(T_END, T + dt); F = storyAt(T); }
     const playing = started && !paused;
 
     // Мир рейса.
@@ -377,9 +408,18 @@ export function mountFlight(root, sec, next) {
     sample(F, 'p', P);
     sample(F, 'l', Lk);
     if (dbg) { P.copy(dbg[0]); Lk.copy(dbg[1]); }
-    const air = clamp((F - 1.5) / 3, 0, 1) * (started ? 1 : 0);
-    const shake = V(Math.sin(wall * 1.7) * 0.25 + Math.sin(wall * 4.1) * 0.06, Math.sin(wall * 2.3) * 0.2, Math.cos(wall * 1.3) * 0.25).multiplyScalar(air);
-    if (!started) shake.set(0, Math.sin(wall * 0.8) * 0.05, 0);
+    // Над землёй и водой — всегда с запасом (кроме сцены под водой у платформы).
+    if (!(F > 33 && F < 66)) {
+      let g = -1e9;
+      for (const [dx, dz] of [[0, 0], [14, 0], [-14, 0], [0, 14], [0, -14]]) g = Math.max(g, heightAt(P.x + dx, P.z + dz));
+      if (P.x > 5500 && Math.abs(P.z - riverZ(P.x)) < 70) g = Math.max(g, riverLevel(P.x));
+      for (const lk of LAKES) if (Math.abs(P.x - lk.x) < 900 && Math.abs(P.z - lk.z) < 900 && lakeQ(lk, P.x, P.z) < 1.15) g = Math.max(g, lk.L);
+      if (P.x < 1700) g = Math.max(g, 0);
+      const want = g + 7;
+      clear += ((want > P.y ? want - P.y : 0) - clear) * Math.min(1, dt * 6);
+      P.y += Math.max(clear, want - P.y - 3, 0);
+    }
+    const shake = V(Math.sin(wall * 0.37) * 0.12, Math.sin(wall * 0.29) * 0.08, Math.cos(wall * 0.31) * 0.12).multiplyScalar(started ? 1 : 0.4);
     camera.position.copy(P).add(shake);
     camera.up.set(0, 1, 0);
     camera.lookAt(Lk);
@@ -390,11 +430,11 @@ export function mountFlight(root, sec, next) {
       yawRate += (r - yawRate) * Math.min(1, dt * 2.5);
     }
     yawPrev = yaw;
-    roll += (clamp(-yawRate * 0.55, -0.26, 0.26) * air - roll) * Math.min(1, dt * 3);
+    roll = 0;
     if (!dragging) { yawOff *= Math.pow(0.08, dt); pitchOff *= Math.pow(0.08, dt); }
     camera.rotateY(yawOff);
     camera.rotateX(pitchOff);
-    camera.rotateZ(roll + Math.sin(wall * 13) * 0.0015 * air);
+
 
     world.cullShore(camera);
     life.update(dt, wall, camera.position);
@@ -405,12 +445,18 @@ export function mountFlight(root, sec, next) {
       spdSmooth += (v - spdSmooth) * Math.min(1, dt * 2);
     }
     prevPos.copy(camera.position);
-    const alt = camera.position.y;
-    $('alt').textContent = alt < 0 ? `−${Math.round(-alt)}` : Math.round(alt);
+    const alt = camera.position.y - Math.max(0, heightAt(camera.position.x, camera.position.z));
+    if (dt > 0) vsSmooth += ((camera.position.y - prevY) / dt - vsSmooth) * Math.min(1, dt * 2);
+    prevY = camera.position.y;
+    $('alt').textContent = camera.position.y < 0 ? `−${Math.round(-camera.position.y)}` : Math.round(Math.max(0, alt));
     $('spd').textContent = Math.round(started ? spdSmooth : 0);
-    const hdg = ((yaw * 180) / Math.PI + 360) % 360;
-    $('hdg').textContent = String(Math.round(hdg) % 360).padStart(3, '0');
-    tape.style.transform = `translateX(${-(hdg + 360) * 4}px)`;
+    $('vs').textContent = (started ? vsSmooth : 0).toFixed(1);
+    $('dist').textContent = (Math.hypot(camera.position.x + 64, camera.position.z + 64) / 1000).toFixed(1);
+    const sec = Math.floor(started ? T : 0);
+    $('rec').textContent = `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
+    const bat = Math.round(98 - (T / T_END) * 61);
+    $('bat').textContent = bat;
+    $('batBar').style.width = bat + '%';
     $('under').style.opacity = clamp(-alt / 6, 0, 1) * 0.9;
 
     // Глава, титр, прогресс.

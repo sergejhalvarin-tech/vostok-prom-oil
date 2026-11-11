@@ -121,45 +121,72 @@ export function substation(p, {x, y, z, ry = 0, key}) {
   return g;
 }
 
-// Решётчатая опора ЛЭП: четыре сужающихся пояса, траверсы, гирлянды изоляторов.
-export function powerTower(p, x, y, z, ry, key, H = 30) {
+// Опора ВЛ 110 кВ (типа П110): решётчатый ствол из уголков с перекрёстной решёткой, две траверсы
+// (нижняя — в обе стороны, верхняя — в одну), тросостойка с грозотросом, гирлянды стеклянных изоляторов.
+// Возвращает точки подвеса проводов (низ гирлянд) и грозотроса — в мировых координатах.
+const GLASS = new THREE.MeshStandardMaterial({color: 0x6fae9a, roughness: 0.2, metalness: 0.1, transparent: true, opacity: 0.9});
+const ANGLE = new THREE.MeshStandardMaterial({color: 0x9ea6ab, metalness: 0.6, roughness: 0.45});
+export function powerTower(p, x, y, z, ry, key, H = 27) {
   const g = site(p, x, y, z, ry);
-  const w = (h) => 2.4 - h / H * 1.8;
-  const C = (h) => [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => V(a * w(h), h, b * w(h)));
-  const lv = [0, H * 0.3, H * 0.55, H * 0.78, H];
+  const half = (h) => (h < 19 ? 2.1 - (h / 19) * 1.35 : 0.75 - (h - 19) / (H - 19) * 0.3);
+  const C = (h) => [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => V(a * half(h), h, b * half(h)));
+  const lv = [0, 4.5, 8.5, 12, 15.5, 19, 22.5, H];
   for (let i = 0; i < lv.length - 1; i++) {
     const A = C(lv[i]), B = C(lv[i + 1]);
     for (let c = 0; c < 4; c++) {
-      link(g, A[c], B[c], 0.1, FM.steel, key, 4);
-      link(g, A[c], B[(c + 1) % 4], 0.05, FM.steel, key, 4);
+      const n = (c + 1) % 4;
+      link(g, A[c], B[c], 0.085, ANGLE, key, 4);                                   // пояса
+      link(g, A[c], B[n], 0.035, ANGLE, key, 3);                                   // перекрёстная решётка
+      link(g, A[n], B[c], 0.035, ANGLE, key, 3);
+      link(g, B[c], B[n], 0.04, ANGLE, key, 3);                                    // диафрагмы
     }
   }
-  for (const [h, L] of [[H * 0.78, 6], [H * 0.95, 4]]) {
-    link(g, V(-L, h, 0), V(L, h, 0), 0.12, FM.steel, key, 4);
-    for (const s of [-1, 1]) link(g, V(s * L, h, 0), V(s * w(h + 3), h + 3, 0), 0.06, FM.steel, key, 4);
-  }
-  return {g, arms: [V(-6, H * 0.78 - 1.6, 0), V(6, H * 0.78 - 1.6, 0), V(-4, H * 0.95 - 1.6, 0)]};
+  for (const [a, b] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) box(g, 0.9, 0.5, 0.9, FM.concrete, a * 2.1, 0.15, b * 2.1, key);
+  // Траверсы — треугольные фермы: верхний и нижний пояс сходятся к концу.
+  const arm = (h, L, side) => {
+    const w = half(h);
+    const tip = V(side * L, h, 0);
+    for (const dz of [-w, w]) {
+      link(g, V(side * w, h, dz), tip, 0.05, ANGLE, key, 3);
+      link(g, V(side * w, h + 1.6, dz), V(side * L * 0.55, h + 0.75, 0), 0.04, ANGLE, key, 3);
+    }
+    link(g, V(side * L * 0.55, h + 0.75, 0), tip, 0.04, ANGLE, key, 3);
+    for (let k = 1; k < 3; k++) link(g, V(side * (w + (L - w) * k / 3), h, -w * (1 - k / 3)), V(side * (w + (L - w) * k / 3), h, w * (1 - k / 3)), 0.03, ANGLE, key, 3);
+    // Гирлянда изоляторов: 8 тарелок, внизу — зажим провода.
+    for (let k = 0; k < 8; k++) cyl(g, 0.14, 0.07, GLASS, side * L, h - 0.25 - k * 0.19, 0, key, null, 10);
+    link(g, V(side * L, h, 0), V(side * L, h - 1.85, 0), 0.02, ANGLE, key, 3);
+    return V(side * L, h - 1.9, 0);
+  };
+  const pts = [arm(19, 4.2, -1), arm(19, 4.2, 1), arm(22.5, 3.6, -1)];
+  // Тросостойка.
+  link(g, V(-0.3, H, 0), V(0, H + 3.2, 0), 0.06, ANGLE, key, 3);
+  link(g, V(0.3, H, 0), V(0, H + 3.2, 0), 0.06, ANGLE, key, 3);
+  // Табличка с номером и знак «Опасно».
+  box(g, 0.5, 0.35, 0.02, FM.white, 0, 3.0, half(3) + 0.05, key);
+  box(g, 0.4, 0.4, 0.02, FM.yellow, 0, 3.6, half(3.6) + 0.05, key);
+  g.updateMatrixWorld(true);
+  return {g, arms: [...pts, V(0, H + 3.1, 0)].map((a) => a.applyMatrix4(g.matrixWorld))};
 }
-// ЛЭП по точкам (мировые координаты опор): опоры + провода с провисом.
-export function powerLine(p, towers, key) {
+// ЛЭП по точкам опор [x, y, z]: опоры повёрнуты по направлению линии, провода — цепная линия с провисом ~3% пролёта.
+// skip — номера опор, которые уже стоят (провода подвешиваются к ним, сами опоры не строятся).
+export function powerLine(p, towers, key, {skip = [], ry: ryFix = {}} = {}) {
   const pts = [];
   const tw = towers.map(([x, y, z], i) => {
     const nx = towers[Math.min(i + 1, towers.length - 1)], pv = towers[Math.max(0, i - 1)];
-    const ry = Math.atan2(nx[0] - pv[0], nx[2] - pv[2]) + Math.PI / 2;
-    const t = powerTower(p, x, y, z, ry, key);
-    t.g.updateMatrixWorld(true);
-    return t.arms.map((a) => a.clone().applyMatrix4(t.g.matrix));
+    const ry = ryFix[i] ?? Math.atan2(nx[0] - pv[0], nx[2] - pv[2]) + Math.PI / 2;
+    return powerTower(skip.includes(i) ? new THREE.Group() : p, x, y, z, ry, key).arms;
   });
-  for (let i = 0; i < tw.length - 1; i++) for (let k = 0; k < 3; k++) {
-    const A = tw[i][k], B = tw[i + 1][k];
-    for (let j = 0; j < 8; j++) {
-      const t0 = j / 8, t1 = (j + 1) / 8, sag = (t) => 2.2 * 4 * t * (1 - t);
+  for (let i = 0; i < tw.length - 1; i++) for (let k = 0; k < 4; k++) {
+    const A = tw[i][k], B = tw[i + 1][k], span = Math.hypot(B.x - A.x, B.z - A.z);
+    const sag = span * (k === 3 ? 0.022 : 0.03), N = Math.max(6, Math.round(span / 20));
+    for (let j = 0; j < N; j++) {
+      const t0 = j / N, t1 = (j + 1) / N, s = (t) => sag * 4 * t * (1 - t);
       const P0 = A.clone().lerp(B, t0), P1 = A.clone().lerp(B, t1);
-      P0.y -= sag(t0); P1.y -= sag(t1);
+      P0.y -= s(t0); P1.y -= s(t1);
       pts.push(P0, P1);
     }
   }
-  const l = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({color: 0x34383c}));
+  const l = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({color: 0x2d3236}));
   l.userData.dynamic = true;
   p.add(l);
 }

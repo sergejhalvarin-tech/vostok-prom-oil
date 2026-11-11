@@ -55,11 +55,20 @@ export const riverZ = (x) => 260 + 1250 * Math.sin((x - 5900) / 1450 + 0.4);
 const riverL = (x) => 60 - (x - 5600) * 0.0014;
 const LAKE4_L = 66;
 export const LAKES = [
-  {x: 7700, z: -1500, r: 330, L: 57},
-  {x: 10150, z: 2150, r: 420, L: 52},
-  {x: 12500, z: -1250, r: 300, L: 48},
-  {x: 16930, z: 1070, r: 200, L: LAKE4_L},
+  {x: 7700, z: -1500, r: 300, L: 57, e: 1.55, rot: 0.45, s: 1.3, cliffA: 1.95},
+  {x: 10150, z: 2150, r: 380, L: 52, e: 1.85, rot: -0.4, s: 4.1, island: [70, -40, 60]},
+  {x: 12500, z: -1250, r: 280, L: 45.5, e: 1.35, rot: 1.1, s: 2.2, cliffA: -2.2},
+  {x: 16930, z: 1070, r: 190, L: LAKE4_L, e: 1.6, rot: 0.2, s: 5.7, cliffA: 1.3},
 ];
+// Нормированное расстояние до берега озера: 1 — урез воды, меньше — вода.
+export function lakeQ(lk, x, z) {
+  const dx = x - lk.x, dz = z - lk.z, c = Math.cos(lk.rot), sn = Math.sin(lk.rot);
+  const u = dx * c + dz * sn, v = (-dx * sn + dz * c) / lk.e;
+  const a = Math.atan2(v, u);
+  const wob = 1 + 0.2 * Math.sin(3 * a + lk.s) + 0.12 * Math.sin(5 * a + 2 * lk.s) + 0.06 * Math.sin(9 * a + 3 * lk.s) + 0.18 * (fbm(x / 160 + lk.s, z / 160 - lk.s, 3) - 0.5);
+  return Math.hypot(u, v) / (lk.r * wob);
+}
+const lakeExtent = (lk) => lk.r * lk.e * 1.5 + 60;
 export const riverLevel = riverL;
 // Терминал приёмки сырья НПЗ — конечная точка железной дороги от нефтебазы.
 export const REFINERY = {name: 'НПЗ', x: 17760, z: 200, w: 1120, d: 860};
@@ -91,10 +100,28 @@ function natural(x, z) {
     // Русло реки: дно ниже уровня воды, пологие берега.
     const dzdx = 1250 / 1450 * Math.cos((x - 5900) / 1450 + 0.4);
     const dz = Math.abs(z - riverZ(x)) / Math.sqrt(1 + dzdx * dzdx), L = riverL(x), w = 28;
-    h = Math.min(h, dz < w ? L - 3.2 * (1 - (dz / w) ** 2) : L + 0.4 + (dz - w) * 0.28);
+    // Утёсы: на отдельных участках (то одном, то другом берегу) берег встаёт скальной стеной до ~34 м.
+    const side = z > riverZ(x) ? 1 : -1;
+    // (у перехода нефтепровода берега пологие — там медведь у воды и опоры трубы).
+    const cf = smooth(0.4, 0.55, fbm(x / 1100 + (side > 0 ? 3.1 : 7.7), 1.3, 3)) * smooth(250, 600, Math.abs(x - 5700));
+    const e = dz - w;
+    // Терраса над утёсом: берег приподнят, а у воды обрывается скальной стеной.
+    h += cf * 30 * (1 - smooth(70, 320, dz)) * (0.85 + 0.3 * fbm(x / 60, z / 60, 2));
+    h = Math.min(h, dz < w ? L - 3.2 * (1 - (dz / w) ** 2) : L + 0.4 + e * 0.28 + cf * (Math.min(36, Math.max(0, e - 3) * 3.2) + smooth(3, 12, e) * 7 * (fbm(x / 21, z / 21, 3) - 0.5) + 3 * Math.round(Math.max(0, e - 3) * 0.25) * 0.4));
     for (const lk of LAKES) {
-      const dl = Math.hypot(x - lk.x, (z - lk.z) * 1.25);
-      h = Math.min(h, dl < lk.r ? lk.L - 7 * (1 - (dl / lk.r) ** 2) : lk.L + 0.4 + (dl - lk.r) * 0.22);
+      if (Math.abs(x - lk.x) > lakeExtent(lk) || Math.abs(z - lk.z) > lakeExtent(lk)) continue;
+      const q = lakeQ(lk, x, z), out = (q - 1) * lk.r;
+      let lh;
+      if (q < 1) lh = lk.L - 8 * (1 - q * q);
+      else {
+        const cl = lk.cliffA === undefined ? 0 : smooth(0.55, 0.85, Math.cos(Math.atan2(z - lk.z, x - lk.x) - lk.cliffA));
+        lh = lk.L + 0.4 + out * 0.22 + cl * Math.min(30, Math.max(0, out - 4) * 1.6);
+      }
+      if (lk.island) {
+        const [ix, iz, ir] = lk.island, di = Math.hypot(x - lk.x - ix, z - lk.z - iz);
+        if (di < ir) lh = Math.max(lh, lk.L + 9 * (1 - (di / ir) ** 2) - 2 + 4 * fbm(x / 30, z / 30, 2));
+      }
+      h = Math.min(h, lh);
     }
   }
   return h;
@@ -205,6 +232,17 @@ export function railNear(x, z, maxD = 110) {
   const p = R.pts[best];
   return {d: (x - p.x) * p.tz - (z - p.z) * p.tx, y: p.y, s: p.s, bridge: p.bridge, i: best};
 }
+// Мелкая сетка вдоль реки (±150 м по z) и вокруг озёр: общий рельеф под ней опущен.
+const RIVER_HALF = 150;
+export function waterDip(x, z) {
+  let inside = -1;
+  if (x > 5650) inside = RIVER_HALF - Math.abs(z - riverZ(x));
+  for (const lk of LAKES) {
+    const P = lakeExtent(lk);
+    inside = Math.max(inside, P - Math.max(Math.abs(x - lk.x), Math.abs(z - lk.z)));
+  }
+  return inside > 0 ? 30 * smooth(6, 40, inside) : 0;
+}
 // Под полосой рельефа железной дороги (она строится отдельно, мельче) общий рельеф чуть опущен.
 export function railDip(x, z) {
   if (x < DEPOT.x + DEPOT.w / 2 - 20) return 0;
@@ -216,28 +254,31 @@ export function railDip(x, z) {
 export function paintTerrain(geo, rail = false) {
   const pos = geo.attributes.position;
   const nrm = geo.attributes.normal, cols = new Float32Array(pos.count * 3);
-  const sand = new THREE.Color(0xe0cc98), wet = new THREE.Color(0x8f8566), meadow = new THREE.Color(0x7fb04a),
-    taiga = new THREE.Color(0x2c5530), rock = new THREE.Color(0x8a8379), snow = new THREE.Color(0xf6f9fc), c = new THREE.Color(),
-    autumnO = new THREE.Color(0xc8742c), autumnR = new THREE.Color(0x9e3b24), gold = new THREE.Color(0xd6aa3a), gravel = new THREE.Color(0x9c978c);
+  const sand = new THREE.Color(0xf0dc9c), wet = new THREE.Color(0x9a8e64), meadow = new THREE.Color(0x86c94a),
+    taiga = new THREE.Color(0x2f7a3a), rock = new THREE.Color(0x8f8476), snow = new THREE.Color(0xf6f9fc), c = new THREE.Color(),
+    autumnO = new THREE.Color(0xd99a2e), autumnR = new THREE.Color(0xc0682a), gold = new THREE.Color(0xe6c84a), gravel = new THREE.Color(0x9c978c),
+    lush = new THREE.Color(0x5fb33c), teal = new THREE.Color(0x3f8f5a), rockW = new THREE.Color(0xb39d82);
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i), y = pos.getY(i), slope = 1 - nrm.getY(i), j = hash(x * 0.03, z * 0.03);
     const d = x - coastX(z);
-    const nearWater = x > 5500 && (Math.abs(z - riverZ(x)) < 44 || LAKES.some((lk) => Math.hypot(x - lk.x, (z - lk.z) * 1.25) < lk.r + 22));
+    const nearWater = x > 5500 && (Math.abs(z - riverZ(x)) < 40 || LAKES.some((lk) => Math.abs(x - lk.x) < lakeExtent(lk) && Math.abs(z - lk.z) < lakeExtent(lk) && lakeQ(lk, x, z) < 1.08));
     if (y < 0) c.copy(wet).lerp(sand, Math.max(0, 1 + y / 4));
-    else if (nearWater) c.copy(sand).lerp(meadow, 0.35);
+    else if (nearWater) c.copy(meadow).lerp(wet, 0.25).lerp(sand, 0.18);
     else if (d < 32 && y < 3.5 && !(x >= 1700 && Math.abs(z) < PAD.z)) c.copy(sand);
     else if (y < 40) c.copy(meadow).lerp(taiga, smooth(8, 40, y) * 0.7);
     else c.copy(taiga).lerp(rock, smooth(0.35, 0.75, slope + j * 0.1));
-    // Осенняя тундра и луга: рыжие, золотые и бордовые пятна на открытых местах.
-    if (y > 3 && slope < 0.35 && x > 2300) {
-      const a = fbm(x / 140 + 7, z / 140 - 2, 3);
-      c.lerp(a > 0.55 ? autumnR : autumnO, smooth(0.42, 0.62, a) * 0.55);
-      c.lerp(gold, smooth(0.6, 0.75, fbm(x / 90, z / 90 + 5, 2)) * 0.35);
+    // Живописные «мазки»: крупные пятна разных зелёных, золотые поляны и редкие рыжие куртины.
+    if (y > 3 && slope < 0.4) {
+      const a = fbm(x / 210 + 7, z / 210 - 2, 3), b = fbm(x / 95, z / 95 + 5, 2);
+      c.lerp(a > 0.5 ? lush : teal, Math.abs(a - 0.5) * 1.2);
+      c.lerp(gold, smooth(0.62, 0.76, b) * 0.45);
+      if (x > 2300) c.lerp(b > 0.5 ? autumnO : autumnR, smooth(0.66, 0.78, fbm(x / 140 + 3, z / 140, 3)) * 0.4);
     }
     // Земляное полотно и откосы — щебень и суглинок.
     if (rail) { const rn = railNear(x, z, 30); if (rn && !rn.bridge) c.lerp(gravel, (1 - smooth(9, 22, Math.abs(rn.d))) * 0.8); }
     // Скальные обнажения на крутизне.
-    c.lerp(rock, smooth(0.5, 0.8, slope) * 0.85);
+    // Скалы: камень на крутизне, на стенах — слоистые тёплые полосы песчаника.
+    c.lerp(rock, smooth(0.36, 0.62, slope) * 0.92).lerp(rockW, smooth(0.5, 0.8, slope) * (0.35 + 0.5 * (0.5 + 0.5 * Math.sin(y * 0.55 + fbm(x / 50, z / 50, 2) * 4))));
     // Площадки станций и нефтебазы — отсыпка гравием.
     if (x > 6000 && [...STATIONS, DEPOT, REFINERY].some((s) => Math.abs(x - s.x) < (s.w || 200) / 2 && Math.abs(z - s.z) < (s.d || 150) / 2)) c.copy(gravel).offsetHSL(0, 0, j * 0.04);
     const snowLine = 270 + j * 60;
@@ -247,12 +288,82 @@ export function paintTerrain(geo, rail = false) {
   geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
 }
 
+// Мелкая сетка рельефа у воды (шаг 7–8 м): чёткие утёсы, изрезанные берега, острова.
+// Кусками по ~1 км — далёкие не рисуются.
+function waterDetail(x0, x1, z0, z1) {
+  const group = new THREE.Group(), parts = [];
+  const mat = new THREE.MeshLambertMaterial({vertexColors: true, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 2});
+  const grid = (cols, rows, at) => {
+    const P = [], I = [];
+    for (let i = 0; i < rows; i++) for (let j = 0; j < cols; j++) {
+      const [x, z] = at(i, j);
+      P.push(x, heightAt(x, z), z);
+      if (i && j) { const a = (i - 1) * cols + j - 1, b = a + 1, c = a + cols, d = c + 1; I.push(a, c, b, b, c, d); }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+    g.setIndex(I);
+    g.computeVertexNormals();
+    paintTerrain(g);
+    const m = new THREE.Mesh(g, mat);
+    m.receiveShadow = true;
+    m.userData.noCast = true;
+    g.computeBoundingSphere();
+    group.add(m);
+    parts.push({m, c: g.boundingSphere.center, r: g.boundingSphere.radius});
+  };
+  // Река: полоса ±150 м по z вдоль русла.
+  const xa = Math.max(x0, 5650), STEP = 7, rows = Math.round((2 * RIVER_HALF) / STEP) + 1;
+  for (let cx = xa; cx < x1; cx += 1050) {
+    const cx1 = Math.min(x1, cx + 1050), cols = Math.round((cx1 - cx) / STEP) + 1;
+    grid(cols, rows, (i, j) => { const x = cx + j * STEP; return [x, riverZ(x) - RIVER_HALF + i * STEP]; });
+  }
+  // Озёра: квадрат вокруг каждого.
+  for (const lk of LAKES) {
+    if (lk.x < x0 || lk.x >= x1) continue;
+    const P = lakeExtent(lk), n = Math.round((2 * P) / 8) + 1;
+    grid(n, n, (i, j) => [lk.x - P + j * 8, lk.z - P + i * 8]);
+  }
+  return {group, update(cam) { for (const p of parts) p.m.visible = Math.hypot(p.c.x - cam.x, p.c.z - cam.z) < 6000 + p.r; }};
+}
+
+// Дальний план вокруг всей карты: тот же рельеф, а за краем — горные хребты до горизонта.
+// Внутри подробной карты сетка утоплена (её закрывает подробный рельеф), у края совпадает с ним.
+export const CORE = {x0: 1420, x1: 18900, z0: -3400, z1: 3800};
+export function makeFarLand() {
+  const X0 = -3000, X1 = 27000, Z0 = -13000, Z1 = 13000, STEP = 200;
+  const cols = Math.round((X1 - X0) / STEP) + 1, rows = Math.round((Z1 - Z0) / STEP) + 1;
+  const P = [], I = [];
+  for (let i = 0; i < rows; i++) for (let j = 0; j < cols; j++) {
+    const x = X0 + j * STEP, z = Z0 + i * STEP;
+    const out = Math.max(CORE.x0 - x, x - CORE.x1, CORE.z0 - z, z - CORE.z1);
+    let y = natural(x, z);
+    if (y < 0) y = -60;                       // море: дно глубоко (не мешает подводным сценам у платформы)
+    else if (out < -20) y -= 40;
+    else {
+      const k = smooth(0, 3500, out);
+      y += k * 230 * Math.pow(ridged(x / 2200 + 1.3, z / 2200 - 4.1), 1.6) * (y > 0 ? 1 : 0) - 1.5;
+    }
+    P.push(x, y, z);
+    if (i && j) { const a = (i - 1) * cols + j - 1, b = a + 1, c = a + cols, d = c + 1; I.push(a, c, b, b, c, d); }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+  g.setIndex(I);
+  g.computeVertexNormals();
+  paintTerrain(g);
+  const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({vertexColors: true}));
+  m.userData.noCast = true;
+  m.frustumCulled = false;
+  return m;
+}
+
 export function makeCoast({x0 = 1420, x1 = 6200, z0 = -3400, z1 = 3800, seg = 300, density = {conifers: 11000, broadleaf: 5000, shrubs: 4000, rocks: 2000}} = {}) {
   const W = x1 - x0, D = z1 - z0;
   const geo = new THREE.PlaneGeometry(W, D, seg, Math.round((seg * D) / W)).rotateX(-Math.PI / 2);
   geo.translate(x0 + W / 2, 0, z0 + D / 2);
   const pos = geo.attributes.position;
-  for (let i = 0; i < pos.count; i++) pos.setY(i, heightAt(pos.getX(i), pos.getZ(i)) - railDip(pos.getX(i), pos.getZ(i)));
+  for (let i = 0; i < pos.count; i++) { const X = pos.getX(i), Z = pos.getZ(i); pos.setY(i, heightAt(X, Z) - Math.max(railDip(X, Z), waterDip(X, Z))); }
   geo.computeVertexNormals();
   paintTerrain(geo);
 
@@ -264,8 +375,9 @@ export function makeCoast({x0 = 1420, x1 = 6200, z0 = -3400, z1 = 3800, seg = 30
   const accept = (x, z, y) => {
     if (x < PAD.x1 + 25 && Math.abs(z) < PAD.z + 25) return false;
     if (x > 2300 && Math.abs(z - pipeZ(x)) < 45) return false;
-    if (x > 5500 && (Math.abs(z - riverZ(x)) < 52 || LAKES.some((lk) => Math.hypot(x - lk.x, (z - lk.z) * 1.25) < lk.r + 28))) return false;
+    if (x > 5500 && Math.abs(z - riverZ(x)) < 46) return false;
     if ([...STATIONS, DEPOT, REFINERY].some((s) => Math.abs(x - s.x) < (s.w || 200) / 2 + 40 && Math.abs(z - s.z) < (s.d || 150) / 2 + 40)) return false;
+    if (x > 5500 && LAKES.some((lk) => Math.abs(x - lk.x) < lakeExtent(lk) && Math.abs(z - lk.z) < lakeExtent(lk) && lakeQ(lk, x, z) < 1.12)) return false;
     const rn = railNear(x, z, 40);
     if (rn && Math.abs(rn.d) < 32) return false;
     if (x > 15500 && x < 16600 && Math.abs(x - canyonX(z)) < 30) return false;
@@ -274,10 +386,12 @@ export function makeCoast({x0 = 1420, x1 = 6200, z0 = -3400, z1 = 3800, seg = 30
   const veg = makeVegetation({x0: Math.max(x0, 1720), x1: x1 - 40, z0: z0 + 250, z1: z1 - 250, heightAt, accept, ...density});
   const group = new THREE.Group();
   group.add(terrain, veg.group);
-  group.userData.update = veg.update;
+  const detail = waterDetail(x0, x1, z0, z1);
+  group.add(detail.group);
+  group.userData.update = (cam) => { veg.update(cam); detail.update(cam); };
   // Вода реки и озёр в долине.
   if (x1 > 5600) {
-    const waterMat = new THREE.MeshStandardMaterial({color: 0x2c6f93, roughness: 0.06, metalness: 0.35, transparent: true, opacity: 0.9});
+    const waterMat = new THREE.MeshStandardMaterial({color: 0x23a3b8, roughness: 0.05, metalness: 0.3, transparent: true, opacity: 0.86});
     const pts = [], idx = [];
     const xa = Math.max(x0, 5600), xb = x1;
     for (let x = xa, i = 0; x <= xb; x += 15, i++) {
@@ -294,8 +408,16 @@ export function makeCoast({x0 = 1420, x1 = 6200, z0 = -3400, z1 = 3800, seg = 30
     group.add(river);
     for (const lk of LAKES) {
       if (lk.x < x0 || lk.x > x1) continue;
-      const lake = new THREE.Mesh(new THREE.CircleGeometry(lk.r + 60, 64).rotateX(-Math.PI / 2), waterMat);
-      lake.scale.z = 1 / 1.25;
+      // Зеркало по форме берега (чуть шире уреза — край прячется под берегом).
+      const shape = new THREE.Shape();
+      for (let k = 0; k < 160; k++) {
+        const a = (k / 160) * Math.PI * 2;
+        let t = lk.r * 0.3;
+        while (t < lk.r * lk.e * 1.6 && lakeQ(lk, lk.x + Math.cos(a) * t, lk.z + Math.sin(a) * t) < 1.07) t += 3;
+        const px = Math.cos(a) * t, pz = Math.sin(a) * t;
+        if (k) shape.lineTo(px, -pz); else shape.moveTo(px, -pz);
+      }
+      const lake = new THREE.Mesh(new THREE.ShapeGeometry(shape, 1).rotateX(-Math.PI / 2), waterMat);
       lake.position.set(lk.x, lk.L - 0.7, lk.z);
       lake.userData.noCast = true;
       group.add(lake);
