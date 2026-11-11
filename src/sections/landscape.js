@@ -71,7 +71,7 @@ export function lakeQ(lk, x, z) {
 const lakeExtent = (lk) => lk.r * lk.e * 1.5 + 60;
 export const riverLevel = riverL;
 // Терминал приёмки сырья НПЗ — конечная точка железной дороги от нефтебазы.
-export const REFINERY = {name: 'НПЗ', x: 17760, z: 200, w: 1120, d: 860};
+export const REFINERY = {name: 'НПЗ', x: 17840, z: 340, w: 760, d: 600};
 // Ось железной дороги (план): от эстакады налива нефтебазы через реку, каньон и вдоль озера к НПЗ.
 const TZ0 = DEPOT.z + 170;   // путь налива нефтебазы
 export const RAIL_PTS = [[13300, TZ0], [14000, TZ0], [14600, TZ0], [15000, 758], [15500, 725], [16050, 705], [16550, 750], [16950, 800], [17250, 690], [17550, 610], [17900, 600], [18300, 600]];
@@ -288,6 +288,7 @@ export function paintTerrain(geo, rail = false) {
   geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
 }
 
+export const RIVER_TIME = {value: 0};
 // Мелкая сетка рельефа у воды (шаг 7–8 м): чёткие утёсы, изрезанные берега, острова.
 // Кусками по ~1 км — далёкие не рисуются.
 function waterDetail(x0, x1, z0, z1) {
@@ -388,24 +389,66 @@ export function makeCoast({x0 = 1420, x1 = 6200, z0 = -3400, z1 = 3800, seg = 30
   group.add(terrain, veg.group);
   const detail = waterDetail(x0, x1, z0, z1);
   group.add(detail.group);
-  group.userData.update = (cam) => { veg.update(cam); detail.update(cam); };
+  group.userData.update = (cam) => { veg.update(cam); detail.update(cam); RIVER_TIME.value = performance.now() / 1000; };
   // Вода реки и озёр в долине.
   if (x1 > 5600) {
     const waterMat = new THREE.MeshStandardMaterial({color: 0x23a3b8, roughness: 0.05, metalness: 0.3, transparent: true, opacity: 0.86});
-    const pts = [], idx = [];
+    // Бурная река: пена бежит по течению полосами, на перекатах — белая вода, лёгкая рябь поверхности.
+    const riverMat = new THREE.MeshStandardMaterial({color: 0x2bb3c4, roughness: 0.12, metalness: 0.15, transparent: true, opacity: 0.9});
+    riverMat.onBeforeCompile = (sh) => {
+      sh.uniforms.uTime = RIVER_TIME;
+      sh.vertexShader = 'attribute vec2 aFlow;' + String.fromCharCode(10) + 'varying vec2 vFlow;' + String.fromCharCode(10) + 'uniform float uTime;' + String.fromCharCode(10) + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+        vFlow = aFlow;
+        float rap = smoothstep(0.45, 0.75, sin(aFlow.x * 0.012) * 0.5 + 0.5);
+        transformed.y += (sin(aFlow.x * 0.9 - uTime * 6.0) * 0.12 + sin(aFlow.x * 0.37 + aFlow.y * 9.0 - uTime * 4.0) * 0.1) * (0.4 + rap);`);
+      sh.fragmentShader = 'varying vec2 vFlow;' + String.fromCharCode(10) + 'uniform float uTime;' + String.fromCharCode(10) + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+        {
+          float u = vFlow.x, v = vFlow.y;
+          float rap = smoothstep(0.45, 0.75, sin(u * 0.012) * 0.5 + 0.5);
+          float st = sin(u * 0.22 - uTime * 7.0 + sin(v * 23.0) * 2.0) * sin(v * 41.0 + sin(u * 0.05) * 3.0);
+          float st2 = sin(u * 0.61 - uTime * 11.0 + v * 17.0) * sin(v * 67.0 - u * 0.03);
+          float edge = smoothstep(0.32, 0.5, abs(v - 0.5));
+          float foam = smoothstep(0.55, 0.95, st * 0.6 + st2 * 0.5 + rap * 0.7 + edge * 0.6);
+          diffuseColor.rgb = mix(diffuseColor.rgb * mix(0.75, 1.15, abs(v - 0.5) * 2.0), vec3(0.96, 0.99, 1.0), foam * 0.85);
+          diffuseColor.a = mix(diffuseColor.a, 1.0, foam);
+          // На перекате (фотоскан ручья) вода прозрачная — видно каменистое дно.
+          diffuseColor.a *= mix(1.0, 0.42, 1.0 - smoothstep(55.0, 75.0, abs(u - 9180.0)));
+        }`);
+    };
+    const pts = [], idx = [], flow = [];
     const xa = Math.max(x0, 5600), xb = x1;
-    for (let x = xa, i = 0; x <= xb; x += 15, i++) {
+    for (let x = xa, i = 0; x <= xb; x += 6, i++) {
       const zc = riverZ(x), y = riverLevel(x) - 0.7;
-      pts.push(x, y, zc - 40, x, y, zc + 40);
-      if (i) { const a = (i - 1) * 2; idx.push(a, a + 1, a + 2, a + 2, a + 1, a + 3); }
+      for (let j = 0; j <= 6; j++) { pts.push(x, y, zc - 40 + j * (80 / 6)); flow.push(x, j / 6); }
+      if (i) for (let j = 0; j < 6; j++) { const a = (i - 1) * 7 + j, c = a + 7; idx.push(a, a + 1, c, c, a + 1, c + 1); }
     }
     const rg = new THREE.BufferGeometry();
     rg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    rg.setAttribute('aFlow', new THREE.Float32BufferAttribute(flow, 2));
     rg.setIndex(idx);
     rg.computeVertexNormals();
-    const river = new THREE.Mesh(rg, waterMat);
+    const river = new THREE.Mesh(rg, riverMat);
     river.userData.noCast = true;
     group.add(river);
+    // Камни в русле: валуны торчат из воды, вокруг — пенные буруны.
+    {
+      const rocks = [], foams = [];
+      let sd = Math.floor(xa) + 17;
+      const rr = () => ((sd = (sd * 16807) % 2147483647) / 2147483647);
+      for (let x = xa + 5; x < xb; x += 7) {
+        if (rr() > 0.62) continue;
+        const z = riverZ(x) + (rr() - 0.5) * 46, s = 1.2 + rr() * 3.4, L = riverLevel(x) - 0.7;
+        rocks.push([x, L - s * 0.35, z, s, rr() * 6.28]);
+        foams.push([x, L + 0.08, z, s * 1.7]);
+      }
+      const rockM = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 1), new THREE.MeshStandardMaterial({color: 0x8b8378, roughness: 0.9, flatShading: true}), rocks.length);
+      const foamM = new THREE.InstancedMesh(new THREE.RingGeometry(0.55, 1.15, 18).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({color: 0xf4fbff, transparent: true, opacity: 0.5, depthWrite: false}), foams.length);
+      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), sc = new THREE.Vector3(), v = new THREE.Vector3();
+      rocks.forEach(([x, y, z, sz, r], i) => rockM.setMatrixAt(i, m4.compose(v.set(x, y, z), q.setFromEuler(e.set(r, r * 2, r * 0.5)), sc.set(sz * 1.3, sz * 0.8, sz))));
+      foams.forEach(([x, y, z, sz], i) => foamM.setMatrixAt(i, m4.compose(v.set(x, y, z), q.identity(), sc.set(sz * 1.05, 1, sz * 0.75))));
+      rockM.userData.noCast = foamM.userData.noCast = true;
+      group.add(rockM, foamM);
+    }
     for (const lk of LAKES) {
       if (lk.x < x0 || lk.x > x1) continue;
       // Зеркало по форме берега (чуть шире уреза — край прячется под берегом).

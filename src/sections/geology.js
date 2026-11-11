@@ -99,15 +99,35 @@ function rockTexture(base, {grain = 0.5, streaks = 0, cracks = 0, pebbles = 0, p
   return tex;
 }
 
+// Цвета пластов — контрастные, чтобы каждый слой читался издалека; линия — цвет контура его кровли.
 const LAYERS = [
-  {name: 'Донные осадки и почвы', color: 0xb7a175, tex: {grain: 1, pebbles: 60, streaks: 12}},
-  {name: 'Глины', color: 0x8b7f6b, tex: {grain: 0.6, streaks: 30}},
-  {name: 'Песчано-глинистая толща', color: 0xa38b62, tex: {grain: 1.1, streaks: 18, pebbles: 30}},
-  {name: 'Известняки', color: 0xbdb6a4, tex: {grain: 0.7, cracks: 26, pebbles: 20, streaks: 8}},
-  {name: 'Покрышка — плотные глины', color: 0x544c45, tex: {grain: 0.5, streaks: 40}},
-  {name: 'Коллектор', color: 0x587080, tex: {grain: 0.8, pores: 900, cracks: 6}},
-  {name: 'Подстилающие породы', color: 0x766c60, tex: {grain: 0.9, cracks: 14, streaks: 10}},
+  {name: 'Донные осадки', color: 0xe0c27a, line: 0xfff1c4, tex: {grain: 1, pebbles: 60, streaks: 12}},
+  {name: 'Глины', color: 0xa86f4a, line: 0xffd2b0, tex: {grain: 0.6, streaks: 30}},
+  {name: 'Песчано-глинистая толща', color: 0xd09a4e, line: 0xffe0a8, tex: {grain: 1.1, streaks: 18, pebbles: 30}},
+  {name: 'Известняки', color: 0xeae4d2, line: 0xffffff, tex: {grain: 0.7, cracks: 26, pebbles: 20, streaks: 8}},
+  {name: 'Покрышка — плотные глины', color: 0x3c332d, line: 0xb9a89a, tex: {grain: 0.5, streaks: 40}},
+  {name: 'Нефтяной пласт (коллектор)', color: 0x3a2412, line: 0xffa62b, tex: {grain: 0.8, pores: 900, cracks: 6}},
+  {name: 'Подстилающие породы', color: 0x5f6f80, line: 0x9fd0ff, tex: {grain: 0.9, cracks: 14, streaks: 10}},
 ];
+// Подпись слоя: табличка на стенке разреза.
+function layerLabel(text, color) {
+  const cv = document.createElement('canvas');
+  cv.width = 1024; cv.height = 128;
+  const g = cv.getContext('2d');
+  g.fillStyle = 'rgba(10,14,18,0.72)';
+  g.fillRect(0, 14, 1024, 100);
+  g.fillStyle = '#' + new THREE.Color(color).getHexString();
+  g.fillRect(0, 14, 16, 100);
+  g.fillStyle = '#fff';
+  g.font = '600 56px Inter, Arial, sans-serif';
+  g.textBaseline = 'middle';
+  g.fillText(text, 40, 66);
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(150, 18.75), new THREE.MeshBasicMaterial({map: t, transparent: true, depthWrite: false}));
+  m.renderOrder = 6;
+  return m;
+}
 
 // Лента слоя на стенке разреза: между двумя кривыми, с неровной (рельефной) поверхностью скола.
 function faceStrip(topFn, botFn, rows = 6, step = 6) {
@@ -172,6 +192,23 @@ export function makeSection() {
     m.userData.noCast = true;
     group.add(m);
   });
+  // Контуры границ пластов на стенке и подписи слоёв (у платформы и под сушей).
+  tops.slice(1).forEach((fn, k) => {
+    const pts = [];
+    for (let x = X0; x <= X1; x += 12) pts.push(new THREE.Vector3(x, fn(Math.round(x / 6) * 6), FACE_Z + 4));
+    const line = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), pts.length, k === 4 ? 1.1 : 0.7, 5), new THREE.MeshBasicMaterial({color: LAYERS[k + 1].line}));
+    line.userData.noCast = true;
+    group.add(line);
+  });
+  LAYERS.forEach((L, i) => {
+    for (const lx of [-640, 2600]) {
+      const x = Math.round(lx / 6) * 6, top = tops[i](x), bot = i < LAYERS.length - 1 ? tops[i + 1](x) : bottomFn(x);
+      if (top - bot < 14) continue;
+      const lab = layerLabel(L.name, L.line);
+      lab.position.set(x, (top + bot) / 2, FACE_Z + 5);
+      group.add(lab);
+    }
+  });
   // Разломы: тёмные трещины на стенке.
   for (const fx of [820 + 0.25 * FACE_Z, 2650 - 0.18 * FACE_Z]) {
     const top = B(Math.round(fx / 6) * 6).S, bot = -470;
@@ -183,41 +220,58 @@ export function makeSection() {
 
   // --- границы пластов перед стенкой: полупрозрачные неровные поверхности ---
   const sheetMat = (c, o) => new THREE.MeshStandardMaterial({map: gridTexture(c), transparent: true, opacity: o, depthWrite: false, side: THREE.DoubleSide, roughness: 0.8});
-  const SH = [['#8b7f6b', 0.09, 0], ['#a38b62', 0.08, 1], ['#bdb6a4', 0.09, 2], ['#544c45', 0.14, 3]];
+  const SH = [['#a86f4a', 0.2, 0], ['#d09a4e', 0.18, 1], ['#eae4d2', 0.2, 2], ['#3c332d', 0.3, 3]];
   for (const [c, o, k] of SH) {
     const m = new THREE.Mesh(sheet((x, z) => boundaries(x, z).b[k]), sheetMat(c, o));
     m.renderOrder = 4;
     group.add(m);
   }
   // Подошва коллектора (водонасыщенная часть) — голубоватая.
-  const wb = new THREE.Mesh(sheet((x, z) => boundaries(x, z).b[5]), sheetMat('#4f7a96', 0.12));
+  const wb = new THREE.Mesh(sheet((x, z) => boundaries(x, z).b[5]), sheetMat('#4f8fc6', 0.26));
   wb.renderOrder = 4;
   group.add(wb);
 
   // --- нефтяная залежь: полупрозрачный купол над водонефтяным контактом ---
   const top = sheet((x, z) => Math.max(OWC, RES_T(x, z)), {x0: -460, x1: 460, z0: -460, z1: 460, seg: 120});
   const bottom = sheet(() => OWC, {x0: -460, x1: 460, z0: -460, z1: 460, seg: 4});
-  const oilMat = new THREE.MeshStandardMaterial({color: 0x7a3c0a, emissive: 0x4a2000, emissiveIntensity: 1.0, roughness: 0.2, metalness: 0.1,
-    transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide});
-  for (const g of [top, bottom]) { const m = new THREE.Mesh(g, oilMat); m.renderOrder = 5; group.add(m); }
+  const oilMat = new THREE.MeshStandardMaterial({color: 0xb85a0c, emissive: 0x8a3c00, emissiveIntensity: 1.3, roughness: 0.2, metalness: 0.1,
+    transparent: true, opacity: 0.42, depthWrite: false, side: THREE.DoubleSide});
+  // Водонефтяной контакт — голубая плоскость под залежью.
+  const owcMat = new THREE.MeshStandardMaterial({color: 0x3f9ad8, emissive: 0x0d3a66, emissiveIntensity: 0.8, transparent: true, opacity: 0.24, depthWrite: false, side: THREE.DoubleSide});
+  { const m = new THREE.Mesh(top, oilMat); m.renderOrder = 5; group.add(m); }
+  { const m = new THREE.Mesh(bottom, owcMat); m.renderOrder = 5; group.add(m); }
 
   // --- куст скважин во все стороны ---
   const heads = [];
   for (let i = 0; i < 12; i++) heads.push(new THREE.Vector3(-14 + (i % 4) * 6, SEABED, -12 + Math.floor(i / 4) * 8));
-  const midOil = (x, z) => (Math.max(RES_T(x, z), OWC + 2) + OWC) / 2;
+  const midOil = (x, z) => OWC + Math.max(2, (RES_T(x, z) - OWC) * 0.45);
   const midWater = (x, z) => (Math.min(RES_T(x, z), OWC) + RES_B(x, z)) / 2;
+  // Скважина: вертикальный участок → набор кривизны → посадка в пласт → горизонтальный ствол,
+  // повторяющий купол (всё время внутри нефтенасыщенной части или в водоносной под контактом).
   const well = (h, az, R, depthFn) => {
     const dir = new THREE.Vector3(Math.cos(az), 0, Math.sin(az));
     if (dir.z < -0.05) R = Math.min(R, (h.z - FACE_Z - 25) / -dir.z);
-    const at = (k, y) => h.clone().addScaledVector(dir, R * k).setY(y);
-    const p3 = at(0.62, 0), p4 = at(1, 0);
-    p3.y = depthFn(p3.x, p3.z);
-    p4.y = depthFn(p4.x, p4.z);
-    return new THREE.CatmullRomCurve3([h.clone(), at(0, SEABED - 45), at(0.28, -128), p3, p4], false, 'centripetal');
+    const at = (k) => h.clone().addScaledVector(dir, R * k);
+    const pts = [h.clone(), h.clone().setY(SEABED - 40), at(0.12).setY(-118)];
+    for (const k of [0.32, 0.48, 0.64, 0.8, 1]) { const p = at(k); p.y = depthFn(p.x, p.z); pts.push(p); }
+    return {curve: new THREE.CatmullRomCurve3(pts, false, 'centripetal'), lat: pts.slice(3)};
   };
-  const prod = [], inj = [];
-  for (let k = 0; k < 8; k++) prod.push(well(heads[k], (k / 8) * Math.PI * 2 + 0.2, 200 + (k % 3) * 55, midOil));
-  for (let k = 0; k < 4; k++) inj.push(well(heads[8 + k], (k / 4) * Math.PI * 2 + 0.6, 500, midWater));
+  const prod = [], inj = [], laterals = [];
+  for (let k = 0; k < 8; k++) { const w = well(heads[k], (k / 8) * Math.PI * 2 + 0.2, 300 + (k % 3) * 45, midOil); prod.push(w.curve); laterals.push([w.curve, true]); }
+  for (let k = 0; k < 4; k++) { const w = well(heads[8 + k], (k / 4) * Math.PI * 2 + 0.6, 420, midWater); inj.push(w.curve); laterals.push([w.curve, false]); }
+  // Перфорация на горизонтальном участке и забой — светящиеся кольца и наконечник.
+  for (const [c, isOil] of laterals) {
+    const m = new THREE.MeshBasicMaterial({color: isOil ? 0xffb02e : 0x6fd0ff});
+    for (let k = 0.5; k < 0.99; k += 0.06) {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(2.4, 0.35, 6, 16), m);
+      ring.position.copy(c.getPointAt(k));
+      ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), c.getTangentAt(k));
+      group.add(ring);
+    }
+    const toe = new THREE.Mesh(new THREE.SphereGeometry(2.6, 14, 10), m);
+    toe.position.copy(c.getPointAt(1));
+    group.add(toe);
+  }
   const mProd = glassPipeMaterial(0xffc27a, 0.3), mInj = glassPipeMaterial(0x8cc8ff, 0.3);
   for (const c of prod) group.add(new THREE.Mesh(new THREE.TubeGeometry(c, 160, 1.9, 14), mProd));
   for (const c of inj) group.add(new THREE.Mesh(new THREE.TubeGeometry(c, 160, 1.9, 14), mInj));

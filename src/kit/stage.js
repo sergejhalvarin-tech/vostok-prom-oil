@@ -72,6 +72,26 @@ export function createStage(vp, {cam, tgt, names = {}, onPick, pick = true} = {}
     if (medium === 'air') scene.background = t;
   });
   const airBg = () => skyTex || skyRT.texture;
+  // Морской горизонт без гор: кольцо дымки вокруг камеры, видимое только там, где горизонт над морем
+  // (дальняя точка западнее берега). Над сушей горы панорамы остаются.
+  const haze = new THREE.Mesh(
+    new THREE.CylinderGeometry(9000, 9000, 2400, 96, 1, true),
+    new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, side: THREE.BackSide, fog: false,
+      uniforms: {uCol: {value: new THREE.Color(0xc9dcea)}, uTop: {value: new THREE.Color(0xb7d4ec)}},
+      vertexShader: `varying vec3 vW; varying float vY; void main() { vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vY = position.y; gl_Position = projectionMatrix * viewMatrix * w; }`,
+      fragmentShader: `uniform vec3 uCol, uTop; varying vec3 vW; varying float vY;
+        void main() {
+          float sea = smoothstep(2600.0, 900.0, vW.x);
+          float up = 1.0 - smoothstep(-150.0, 900.0, vY);
+          gl_FragColor = vec4(mix(uTop, uCol, up), sea * clamp(up * 1.15, 0.0, 1.0));
+          #include <colorspace_fragment>
+        }`,
+    }),
+  );
+  haze.renderOrder = -1;
+  haze.frustumCulled = false;
+  scene.add(haze);
 
   // Голубая воздушная дымка: даль растворяется в цвете горизонта панорамы.
   const FOG = new THREE.Color(0xc9dcea);
@@ -257,6 +277,8 @@ export function createStage(vp, {cam, tgt, names = {}, onPick, pick = true} = {}
     if (!manual) controls.update();
 
     setMedium(camera.position.y);
+    haze.position.set(camera.position.x, camera.position.y * 0.3, camera.position.z);
+    haze.visible = medium === 'air';
     const focusPt = manual ? manual() : controls.target;
     sun.target.position.copy(focusPt);
     sun.position.copy(focusPt).addScaledVector(sunDir, 700);

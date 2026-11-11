@@ -152,10 +152,6 @@ export function buildStations(p) {
     cyl(p, 0.7, 24, M.grey, st.x + 30, y + 12, st.z + 62, k);
     // Подстанция и ЛЭП.
     substation(p, {x: st.x - 96, y, z: st.z + 48, key: k});
-    {                                                                                              // отпайка от ВЛ 110 кВ
-      const tx = st.x - 96, tz = pipeZ(tx) + 190, dir = Math.atan2(pipeZ(tx + 300) - pipeZ(tx - 300), 600);
-      powerLine(p, [[tx, y, st.z + 66], [tx, heightAt(tx, tz), tz]], k, {skip: [1], ry: {1: Math.PI / 2 - dir + Math.PI / 2}});
-    }
     // Операторная, пожарная насосная с резервуарами.
     building(p, {x: st.x + 64, y, z: st.z + 52, w: 30, d: 14, h: 8, key: k, floors: 2});
     fireStation(p, {x: st.x + 118, y, z: st.z + 34, key: k});
@@ -228,7 +224,6 @@ export function buildDepot(p) {
   building(p, {x: cx + 140, y, z: cz - 180, w: 24, d: 14, h: 6, key: k, floors: 1});
   building(p, {x: cx + 270, y, z: cz + 30, w: 46, d: 16, h: 13, key: k, floors: 3});
   substation(p, {x: cx + 120, y, z: cz + 70, key: k});
-  powerLine(p, [[cx + 120, cz + 86], [cx + 160, cz - 330], [cx + 210, cz - 720]].map(([x, z], i) => [x, i ? heightAt(x, z) : y, z]), k);
   fireStation(p, {x: cx + 320, y, z: cz - 220, key: k, tanks: 3});
   // Автоналив: навес на три поста, наливные стояки, бензовозы.
   {

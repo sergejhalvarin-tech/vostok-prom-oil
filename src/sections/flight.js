@@ -47,17 +47,22 @@ const CHAPTERS = [
 ];
 const F_END = 303, F_CARD = 297;
 
-// Темп съёмки: каждая глава идёт не дольше нужного — длинные перелёты ускорены (но не короче озвучки).
-const VOICE = [13.4, 17.7, 13.2, 13.2, 12.3, 22.6, 13.8, 13.7, 15.6, 15.1, 11.9, 18.2, 15.7];
+// Темп съёмки: перелёты быстрые, а на зверях и красивых видах дрон «зависает» — время сюжета замедляется.
+// Скорость главы — секунд сюжета за секунду показа; DWELL — где задержаться [момент сюжета, сила 0…1].
+const SPEED = [1.15, 1.35, 1.15, 1.15, 1.25, 1.7, 1.45, 1.9, 1.05, 1.0, 1.45, 1.6, 1.3];
+const DWELL = [[44, 0.6], [181.5, 0.82], [186.8, 0.6], [192.5, 0.85], [200.5, 0.8], [202.8, 0.8], [251, 0.6], [264, 0.7], [270.5, 0.8], [282, 0.5]];
 const WARP = (() => {
   const pts = [[0, 0]];
   let T = 0;
-  CHAPTERS.forEach((c, i) => {
-    const D = (CHAPTERS[i + 1]?.t ?? F_CARD) - c.t;
-    T += Math.min(D, Math.max((VOICE[i] ?? 10) + 1.3, D * 0.5));
-    pts.push([T, CHAPTERS[i + 1]?.t ?? F_CARD]);
-  });
-  pts.push([T + (F_END - F_CARD), F_END]);
+  const dF = 0.05;
+  for (let f = 0; f < F_END; f += dF) {
+    let ci = 0;
+    CHAPTERS.forEach((c, i) => { if (f >= c.t) ci = i; });
+    let v = f >= F_CARD ? 1 : SPEED[ci] ?? 1.2;
+    for (const [fd, k] of DWELL) v *= 1 - k * Math.exp(-(((f - fd) / 1.6) ** 2));
+    T += dF / Math.max(0.12, v);
+    pts.push([T, f + dF]);
+  }
   return pts;
 })();
 const T_END = WARP[WARP.length - 1][0];
@@ -126,7 +131,6 @@ export function mountFlight(root, sec, next) {
           <div class="fl-chapters" id="chapters"></div>
           <div class="fl-ctl">
             <button class="fl-btn" id="bPause" title="Пауза">❚❚</button>
-            <button class="fl-btn" id="bSound" title="Озвучка диктором">ГОЛОС ВЫКЛ</button>
             <a class="fl-btn" id="bMore" href="#shelf">Подробнее об этапе</a>
             <button class="fl-btn" id="bSkip">Пропустить облёт →</button>
           </div>
@@ -135,10 +139,9 @@ export function mountFlight(root, sec, next) {
           <div class="fl-intro-in">
             <div class="fl-brand"><span class="brand-drop"></span>ВОСТОК<b>ПРОМ</b>ОЙЛ</div>
             <h1>Путь нефти</h1>
-            <p>Съёмка с дрона: от арктической платформы на шельфе до нефтеперерабатывающего завода — море, терминал, магистраль, нефтебаза и железная дорога. Около четырёх минут.</p>
+            <p>Съёмка с дрона: от арктической платформы на шельфе до нефтеперерабатывающего завода — море, терминал, магистраль, нефтебаза и железная дорога. Около четырёх с половиной минут.</p>
             <div class="fl-start">
               <button class="fl-go" id="bGo" disabled><span id="goText">Загрузка 0%</span></button>
-              <label class="fl-snd"><input type="checkbox" id="cSound" checked> с озвучкой диктора</label>
             </div>
             <a class="fl-alt" href="#shelf">Смотреть по разделам →</a>
           </div>
@@ -155,7 +158,7 @@ export function mountFlight(root, sec, next) {
               <a class="fl-btn2" href="#shelf">Этапы подробно</a>
               <button class="fl-btn2" id="bReplay">Повторить облёт ↺</button>
             </div>
-            <p class="fl-credits">3D-модели «МЛСП Приразломная» © Lightproduction, «Tanker Ship» © KoreanNavy, «Вагон цистерна для поезда» © mamont nikita, небо «FREE — SkyBox Mountain View» © Paul — CC BY 4.0 (Sketchfab).</p>
+            <p class="fl-credits">3D-модели «МЛСП Приразломная» © Lightproduction, «Tanker Ship» © KoreanNavy, «Вагон цистерна для поезда» © mamont nikita, небо «FREE — SkyBox Mountain View» © Paul, перекат «Stream» © Paul — CC BY 4.0 (Sketchfab).</p>
           </div>
         </div>
       </div>
@@ -248,11 +251,11 @@ export function mountFlight(root, sec, next) {
     {t: 268, p: above(16600, 860, 55), l: [16935, 70, 1060]},
     {t: 270.5, p: [16935, 82, 1010], l: rp(trainS(270.5) - 90, 0, 3)},
     {t: 276, p: rp(trainS(276) + 260, -90, 62), l: rp(trainS(276), 0, 0)},
-    {t: 282, p: [17330, 196, 790], l: [17880, 112, 280]},
+    {t: 282, p: [17440, 190, 760], l: [17860, 110, 330]},
     {t: 287.5, p: rp(S_STOP - 120, -24, 11), l: rp(S_STOP - 200, 0, 2)},
-    {t: 292.5, p: [18060, 175, -40], l: [17660, 125, 90]},
-    {t: 297.5, p: [18470, 262, 610], l: [17720, 100, 200]},
-    {t: F_END, p: [18620, 330, 720], l: [17620, 100, 160]},
+    {t: 292.5, p: [18140, 165, 120], l: [17700, 120, 360]},
+    {t: 297.5, p: [18400, 250, 760], l: [17820, 100, 340]},
+    {t: F_END, p: [18560, 320, 860], l: [17780, 100, 320]},
   ];
   const at = (k, key) => (typeof k[key] === 'function' ? k[key]() : V(...k[key]));
   // Эрмит с касательными по соседним кадрам, нормированными на время: скорость непрерывна.
@@ -310,11 +313,11 @@ export function mountFlight(root, sec, next) {
   tag('Мост через реку', () => V(...rp(1730, 0, 16)), 245, 252.5);
   tag('Арочный виадук над каньоном', () => V(...rp(2830, 0, 14)), 259.5, 267.5);
   tag('Горное озеро', [16930, 84, 1070], 268.5, 274);
-  tag('Терминал приёмки сырья НПЗ', [17760, 150, 300], 279.5, 287);
+  tag('Терминал приёмки сырья НПЗ', [17840, 150, 520], 279.5, 287);
   tag('Сливная эстакада', () => V(...rp(S_STOP - 160, 6, 12)), 284.5, 291);
-  tag('Резервуары сырой нефти', [17470, 130, 390], 283, 290);
-  tag('Установка АВТ', [17580, 170, 104], 290, 297);
-  tag('Факел', [18230, 205, -100], 290, 297);
+  tag('Резервуары сырой нефти', [17565, 130, 507], 283, 290);
+  tag('Установка АВТ', [17632, 170, 384], 290, 297);
+  tag('Факел', [18175, 190, 75], 290, 297);
   const levelTags = world.targets.map((tk) => stage.addLabel({html: '', cls: 'level', at: V(tk.x, 34, tk.z), visible: () => F >= 143.5 && F < 166}));
 
   // ---------- шкала глав ----------
@@ -356,12 +359,10 @@ export function mountFlight(root, sec, next) {
     started = true;
     $('intro').classList.add('off');
     vp.classList.add('flying');
-    if ($('cSound').checked) setSound(true);
+    // Озвучка пока выключена (файлы и тексты сохранены — можно вернуть).
   }
   function setSound(on) {
     voice.set(on);
-    $('bSound').textContent = on ? 'ГОЛОС ВКЛ' : 'ГОЛОС ВЫКЛ';
-    $('bSound').classList.toggle('on', on);
   }
 
   $('bGo').onclick = () => { F = 0; T = 0; chapter = -1; start(); };
@@ -370,7 +371,6 @@ export function mountFlight(root, sec, next) {
     $('bPause').textContent = paused ? '▶' : '❚❚';
     paused ? voice.pause() : voice.resume();
   };
-  $('bSound').onclick = () => setSound(!voice.on);
   $('bSkip').onclick = () => jump(F_CARD);
   $('bReplay').onclick = () => jump(0);
 

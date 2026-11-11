@@ -7,6 +7,7 @@ import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {railAt} from './landscape.js';
 import {mergeStatic} from '../kit/merge.js';
+import {makeLocoSection} from './loco.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const mat = (color, o = {}) => new THREE.MeshStandardMaterial({color, roughness: 0.5, metalness: 0.25, ...o});
@@ -661,7 +662,9 @@ function loadTankCar(count) {
         }
         g.applyMatrix4(m4);
         const mt = o.material;
-        mt.roughness = Math.min(mt.roughness ?? 1, 0.6);
+        mt.roughness = Math.min(mt.roughness ?? 1, 0.42);
+        mt.metalness = 0.15;
+        mt.color.multiplyScalar(1.35);                          // яркие, свежеокрашенные цистерны
         const im = new THREE.InstancedMesh(g, mt, isBogie ? count * 2 : count);
         im.frustumCulled = false;
         im.castShadow = true;
@@ -677,7 +680,7 @@ function loadTankCar(count) {
 // cars — сколько вагонов в поезде; extra — неподвижные вагоны: [{x, y, z, yaw}].
 export function makeTrain(stage, {cars = 20, extra = []} = {}) {
   const group = new THREE.Group();
-  const secs = [locoSection(), locoSection()];
+  const secs = [makeLocoSection(), makeLocoSection()];
   secs[1].userData.flip = true;
   for (const s of secs) group.add(s);
   const total = cars + extra.length;

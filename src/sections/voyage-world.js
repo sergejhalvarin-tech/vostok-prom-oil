@@ -2,7 +2,8 @@
 // потоки нефти. Всё состояние — функция времени рейса t (с), поэтому и раздел «Транспорт»,
 // и облёт могут ставить любое время. update(t, dt, wall, playing) вызывается каждый кадр.
 import * as THREE from 'three';
-import {makeIce, makeFlow, makeBeads, OIL} from '../kit/sea.js';
+import {makeIce, makeFlow, makeBeads, OIL, swellAt} from '../kit/sea.js';
+const swTmp = {h: 0, gx: 0, gz: 0};
 import {loadPlatform, loadTanker, TANKER_AT_PLATFORM} from '../kit/models.js';
 import {makeOffloading} from './offloading.js';
 import {buildTerminal, makeMooring, BERTH, ARM_Z} from './terminal.js';
@@ -12,6 +13,8 @@ import {mergeStatic} from '../kit/merge.js';
 import {buildMainline, buildStations, buildDepot, buildPowerTrunk} from './pipeline.js';
 import {makeCoast, makeFarLand} from './landscape.js';
 import {makeFauna} from './fauna.js';
+import {makeSeaFloor} from './seafloor.js';
+import {loadStream} from './stream.js';
 import {buildRailway} from './railway.js';
 import {buildRefinery} from './refinery.js';
 import {makeTrain} from './train.js';
@@ -207,7 +210,6 @@ export function buildVoyageWorld(stage) {
   const inland = new THREE.Group();
   const lineG = new THREE.Group(), stG = new THREE.Group(), depG = new THREE.Group();
   const mainline = buildMainline(lineG);
-  buildPowerTrunk(lineG);
   const stations = buildStations(stG);
   const depot = buildDepot(depG);
   // Каждую НПС — в свою группу (по положению), чтобы далёкие не рисовались.
@@ -227,11 +229,17 @@ export function buildVoyageWorld(stage) {
   ];
   const valley = makeCoast({x0: 6150, x1: 14900, seg: 330, density: {conifers: 16000, broadleaf: 9000, shrubs: 7000, rocks: 3000}});
   stage.scene.add(valley);                                                            // долина за хребтом
+  const rapids = new THREE.Group();
+  stage.scene.add(rapids);
+  loadStream(rapids);
   const fauna = makeFauna();
   stage.scene.add(fauna.group);
   // Железная дорога к НПЗ: восточная долина с каньоном и хребтом, путь, мосты, терминал завода, поезд.
   const eastLand = makeCoast({x0: 14900, x1: 18900, seg: 151, density: {conifers: 9500, broadleaf: 5500, shrubs: 4000, rocks: 2600}});
   stage.scene.add(eastLand);
+  const seaFloor = makeSeaFloor();
+  stage.scene.add(seaFloor.group);
+  stage.onFrame((dt, wall) => seaFloor.update(dt, wall, stage.camera.position));
   const farLand = makeFarLand();
   stage.scene.add(farLand);
   const rail = new THREE.Group(), refG = new THREE.Group();
@@ -273,13 +281,18 @@ export function buildVoyageWorld(stage) {
     if (cam) camPos.copy(cam.position);
     const pose = plan.pose(t, info.pose);
     const rise = 3 * clamp01(phase(t, T.unload));
-    tanker.position.set(pose.pos.x, Math.sin(wall * 0.6) * 0.15 + rise, pose.pos.z);
+    // Качка на зыби: большой корпус гасит волну, поэтому — доля высоты и мягкий крен/дифферент.
+    const sw = swellAt(pose.pos.x, pose.pos.z, wall, swTmp);
+    tanker.position.set(pose.pos.x, sw.h * 0.35 + rise, pose.pos.z);
+    tanker.rotation.x = -sw.gz * 0.6 * (1 - clamp01(phase(t, T.unload)));
+    tanker.rotation.z = sw.gx * 0.6 * (1 - clamp01(phase(t, T.unload)));
     tanker.rotation.y = pose.rot;
     tanker.updateMatrixWorld(true);
     info.tankerLabel = tanker.localToWorld(V(0, 48, 30));
 
     // Отсоединение от платформы; пока шланг подключён — по нему идёт нефть.
     offload.disconnect(phase(t, T.disc));
+    offload.animate(wall);
     hoseFlow.points.visible = t < T.disc[0] + 0.8;
     hoseFlow.update(dt);
 
@@ -296,7 +309,8 @@ export function buildVoyageWorld(stage) {
       const at = tanker.localToWorld(V(46 - 13 * kPush, 0, TUG_Z[i]));
       const w = TUG_WAIT[i];
       const atRot = pose.rot + Math.PI / 2;
-      g.position.set(w.p.x + (at.x - w.p.x) * kGo, Math.sin(wall * 0.9 + i) * 0.2, w.p.z + (at.z - w.p.z) * kGo);
+      { const gx = w.p.x + (at.x - w.p.x) * kGo, gz = w.p.z + (at.z - w.p.z) * kGo, sw = swellAt(gx, gz, wall, swTmp);
+        g.position.set(gx, sw.h * 0.8, gz); g.rotation.x = -sw.gz * 1.2; g.rotation.z = sw.gx * 1.2; }
       g.rotation.y = w.rot + Math.atan2(Math.sin(atRot - w.rot), Math.cos(atRot - w.rot)) * kGo;
       const moving = kGo > 0.02 && kGo < 0.98;
       g.userData.spin(dt, playing ? (moving ? 1.2 : info.tugsOn ? 0.4 + kPush : 0.15) : 0);
@@ -340,6 +354,9 @@ export function buildVoyageWorld(stage) {
     const cx = camera.position.x, cz = camera.position.z;
     term.group.visible = mooring.group.visible = tugs[0].visible = tugs[1].visible = cx > 650 && cx < 6500;
     term.mountains.visible = cx < 10000;
+    // Дно и море видны только с моря и с берега.
+    seaFloor.group.visible = cx < 4200;
+    stage.water.mesh.visible = cx < 9000;
     if (models) { models[0].visible = cx < 4500; tanker.visible = cx < 6500; }
     oil.mesh.visible = cx < 6500;
     lineG.visible = cx < MAIN_END + 3600;

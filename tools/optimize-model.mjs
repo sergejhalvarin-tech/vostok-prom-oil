@@ -21,7 +21,7 @@ const mb = (f) => (fs.statSync(f).size / 1e6).toFixed(1) + ' MB';
 const only = process.argv[2];
 // Платформа
 if (!only || only === 'platform') {
-  const src = 'models/source/prirazlomnaya.glb', out = 'public/models/prirazlomnaya.glb';
+  const src = 'models/source/prirazlomnaya_clean.glb', out = 'public/models/prirazlomnaya.glb';  // без надписей: tools/clean-platform.mjs
   run('metalrough', src, `${tmp}/p1.glb`);
   run('dedup', `${tmp}/p1.glb`, `${tmp}/p2.glb`);
   run('prune', `${tmp}/p2.glb`, `${tmp}/p3.glb`);
@@ -52,8 +52,20 @@ if (!only || only === 'tankcar') {
   run('simplify', `${tmp}/l2w.glb`, `${tmp}/l2s.glb`, '--ratio', '0.2', '--error', '0.02');
   execFileSync(process.execPath, ['tools/sloppy.mjs', `${tmp}/l2s.glb`, `${tmp}/l2x.glb`, '5000', '0.14'], {stdio: 'inherit'});
   run('resize', `${tmp}/l2x.glb`, `${tmp}/l3.glb`, '--width', '1024', '--height', '1024');
-  execFileSync(process.execPath, ['tools/saturate-textures.mjs', `${tmp}/l3.glb`, `${tmp}/l3s.glb`, '1.2', '1.05'], {stdio: 'inherit'});
+  execFileSync(process.execPath, ['tools/saturate-textures.mjs', `${tmp}/l3.glb`, `${tmp}/l3s.glb`, '1.7', '1.1'], {stdio: 'inherit'});
   run('webp', `${tmp}/l3s.glb`, `${tmp}/l4.glb`, '--quality', '90');
   run('meshopt', `${tmp}/l4.glb`, out, '--level', 'medium');
+  console.log(`${src} ${mb(src)} → ${out} ${mb(out)}`);
+}
+
+// Ручей «Stream» © Paul, CC BY 4.0 (фотоскан): сильное упрощение, текстура 2048 — вставка бурного участка реки.
+if (!only || only === 'stream') {
+  const src = 'models/source/stream.glb', out = 'public/models/stream.glb';
+  run('weld', src, `${tmp}/s1.glb`);
+  run('join', `${tmp}/s1.glb`, `${tmp}/s2.glb`);
+  run('simplify', `${tmp}/s2.glb`, `${tmp}/s3.glb`, '--ratio', '0.05', '--error', '0.01');
+  run('resize', `${tmp}/s3.glb`, `${tmp}/s4.glb`, '--width', '2048', '--height', '2048');
+  run('webp', `${tmp}/s4.glb`, `${tmp}/s5.glb`, '--quality', '86');
+  run('meshopt', `${tmp}/s5.glb`, out, '--level', 'medium');
   console.log(`${src} ${mb(src)} → ${out} ${mb(out)}`);
 }

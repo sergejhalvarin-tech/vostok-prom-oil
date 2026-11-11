@@ -314,9 +314,9 @@ export function column(p, {x, y, z, r, h, key, m = FM.alu, platforms = 5}) {
 // Трубчатая печь с дымовой трубой.
 export function furnace(p, {x, y, z, ry = 0, key}) {
   const g = site(p, x, y, z, ry);
-  box(g, 22, 16, 12, mat(0xb8bcbf, {metalness: 0.3}), 0, 8, 0, key);
+  box(g, 22, 16, 12, mat(0xe8541e, {metalness: 0.25}), 0, 8, 0, key);
   box(g, 22.4, 1.2, 12.4, FM.red, 0, 16.6, 0, key);
-  box(g, 10, 6, 6, mat(0xb8bcbf, {metalness: 0.3}), 0, 20, 0, key);
+  box(g, 10, 6, 6, mat(0xd8dadb, {metalness: 0.3}), 0, 20, 0, key);
   cyl(g, 1.8, 46, mat(0xd8dadb), 0, 23 + 23, 0, key, null, 20, 1.5);
   for (const yy of [56, 62]) cyl(g, 1.62, 1.8, FM.red, 0, yy, 0, key, null, 20);
   for (let i = 0; i < 6; i++) box(g, 0.15, 14, 0.15, FM.dark, -10 + i * 4, 8, 6.05, key);
@@ -330,8 +330,8 @@ export function pipeRack(p, {x0, z0, x1, z1, y, key, levels = [6, 9]}) {
   const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
   for (let s = 0; s <= L; s += 8) {
     const px = along ? Math.min(x0, x1) + s : cx, pz = along ? cz : Math.min(z0, z1) + s;
-    for (const o of [-3, 3]) box(p, 0.4, levels[levels.length - 1], 0.4, FM.steel, px + (along ? 0 : o), y + levels[levels.length - 1] / 2, pz + (along ? o : 0), key);
-    for (const lv of levels) box(p, along ? 0.4 : 6.4, 0.4, along ? 6.4 : 0.4, FM.steel, px, y + lv, pz, key);
+    for (const o of [-3, 3]) box(p, 0.4, levels[levels.length - 1], 0.4, FM.blue, px + (along ? 0 : o), y + levels[levels.length - 1] / 2, pz + (along ? o : 0), key);
+    for (const lv of levels) box(p, along ? 0.4 : 6.4, 0.4, along ? 6.4 : 0.4, FM.blue, px, y + lv, pz, key);
   }
   const cols = [0xd8dcdf, 0x6f7a80, 0xe2c86a, 0xd8dcdf, 0x9a5a3c];
   levels.forEach((lv, li) => {

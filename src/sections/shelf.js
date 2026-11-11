@@ -6,6 +6,7 @@ import {SEABED} from '../kit/stage.js';
 import {makeIce, makeFlow} from '../kit/sea.js';
 import {makeSection} from './geology.js';
 import {makeSeaLife} from './sealife.js';
+import {makeSeaFloor} from './seafloor.js';
 import {loadPlatform, loadTanker, TANKER_AT_PLATFORM} from '../kit/models.js';
 import {makeOffloading} from './offloading.js';
 
@@ -115,6 +116,8 @@ export const CREDITS = `
   © <a href="https://sketchfab.com/mamontnikita62" target="_blank" rel="noopener">mamont nikita</a>;
   панорама неба <a href="https://sketchfab.com/3d-models/free-skybox-mountain-view-bf36a7600bcb4c3081aafc66197c2278" target="_blank" rel="noopener">«FREE — SkyBox Mountain View»</a>,
   © <a href="https://sketchfab.com/paul_paul_paul" target="_blank" rel="noopener">Paul</a>;
+  перекат на реке — фотоскан <a href="https://sketchfab.com/3d-models/stream-f285add7060941d39e135a2086158de9" target="_blank" rel="noopener">«Stream»</a>,
+  © <a href="https://sketchfab.com/paul3uk" target="_blank" rel="noopener">Paul</a>;
   все по лицензии <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.`;
 
 export function mountShelf(root, sec, next) {
@@ -133,6 +136,9 @@ export function mountShelf(root, sec, next) {
       const ice = makeIce((x, z) => x > 60 && z < -60 && x - z < 700); // коридор танкера чистый
       stage.scene.add(ice);
 
+      const seaFloor = makeSeaFloor();
+      stage.scene.add(seaFloor.group);
+      stage.onFrame((dt, wall) => seaFloor.update(dt, wall, stage.camera.position));
       const life = makeSeaLife();
       stage.scene.add(life.group);
       const section = makeSection();
@@ -147,6 +153,7 @@ export function mountShelf(root, sec, next) {
       stage.scene.add(offload.group);
       stage.registerTree(offload.group);
       stage.registerTree(offload.station);
+      stage.onFrame((dt, wall) => offload.animate(wall));
       const shipFlow = makeFlow([offload.flowCurve], 140, 0xffa31a, 2.6, false, 30);
       stage.scene.add(shipFlow.points);
 

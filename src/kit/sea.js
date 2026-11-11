@@ -2,69 +2,112 @@
 import * as THREE from 'three';
 import {mergeStatic} from './merge.js';
 
-// Море: волны в вершинном шейдере, френель, блик солнца, туман по дальности.
+// Море: крупная зыбь в вершинном шейдере (несколько направленных волн), мелкая рябь — в нормалях
+// пиксельного шейдера, белые барашки на гребнях, френель, блик солнца, туман по дальности.
 export function makeWater(sunDir, fogColor) {
   const uniforms = {
     uTime: {value: 0},
     uSun: {value: sunDir.clone().normalize()},
-    uDeep: {value: new THREE.Color(0x0c6684)},
+    uDeep: {value: new THREE.Color(0x0b5f7e)},
     uSky: {value: new THREE.Color(0xa6dcef)},
+    uFoam: {value: new THREE.Color(0xf4fbff)},
     uFog: {value: fogColor},
-    uOpacity: {value: 0.8},
+    uOpacity: {value: 0.82},
   };
+  const WAVES = /* glsl */ `
+    uniform float uTime;
+    // Зыбь: направление, длина волны, высота, скорость.
+    float swell(vec2 p, out vec2 g) {
+      float h = 0.0; g = vec2(0.0);
+      vec2 D[4]; float L[4]; float A[4];
+      D[0] = normalize(vec2(1.0, 0.35)); L[0] = 190.0; A[0] = 0.95;
+      D[1] = normalize(vec2(0.7, -0.6)); L[1] = 128.0; A[1] = 0.6;
+      D[2] = normalize(vec2(-0.3, 1.0)); L[2] = 96.0;  A[2] = 0.38;
+      D[3] = normalize(vec2(1.0, 1.2));  L[3] = 74.0;  A[3] = 0.24;
+      for (int i = 0; i < 4; i++) {
+        float k = 6.2832 / L[i], w = sqrt(9.81 * k);
+        float ph = dot(D[i], p) * k - uTime * w;
+        h += A[i] * sin(ph);
+        g += A[i] * k * cos(ph) * D[i];
+      }
+      return h;
+    }`;
   const mat = new THREE.ShaderMaterial({
     uniforms,
     transparent: true,
     depthWrite: false,
     vertexShader: /* glsl */ `
-      uniform float uTime;
-      varying vec3 vW; varying vec3 vN;
-      float h(vec2 p) {
-        return 0.30 * sin(p.x * 0.045 + uTime * 0.9)
-             + 0.22 * sin(p.y * 0.063 - uTime * 1.15)
-             + 0.12 * sin((p.x + p.y) * 0.11 + uTime * 1.8)
-             + 0.06 * sin((p.x - p.y) * 0.23 + uTime * 2.6);
-      }
+      ${WAVES}
+      varying vec3 vW; varying float vH;
       void main() {
         vec4 w = modelMatrix * vec4(position, 1.0);
-        float e = 0.6, hh = h(w.xz);
-        vN = normalize(vec3(-(h(w.xz + vec2(e, 0.0)) - hh) / e, 1.0, -(h(w.xz + vec2(0.0, e)) - hh) / e));
+        vec2 g; float hh = swell(w.xz, g);
         w.y += hh;
-        vW = w.xyz;
+        vW = w.xyz; vH = hh;
         gl_Position = projectionMatrix * viewMatrix * w;
       }`,
     fragmentShader: /* glsl */ `
-      uniform vec3 uSun, uDeep, uSky, uFog; uniform float uOpacity;
-      varying vec3 vW; varying vec3 vN;
+      ${WAVES}
+      uniform vec3 uSun, uDeep, uSky, uFoam, uFog; uniform float uOpacity;
+      varying vec3 vW; varying float vH;
+      float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float vnoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y); }
       void main() {
-        vec3 n = normalize(vN), v = normalize(cameraPosition - vW);
+        vec2 g; swell(vW.xz, g);
+        // Рябь: шумовые нормали двух масштабов, бегущие в разные стороны — без регулярного узора.
+        float t = uTime;
+        vec2 q1 = vW.xz * 0.09 + vec2(t * 0.35, t * 0.12), q2 = vW.xz * 0.23 + vec2(-t * 0.25, t * 0.4);
+        float e = 0.35;
+        vec2 r = vec2(vnoise(q1 + vec2(e, 0.0)) - vnoise(q1 - vec2(e, 0.0)), vnoise(q1 + vec2(0.0, e)) - vnoise(q1 - vec2(0.0, e))) * 0.16
+               + vec2(vnoise(q2 + vec2(e, 0.0)) - vnoise(q2 - vec2(e, 0.0)), vnoise(q2 + vec2(0.0, e)) - vnoise(q2 - vec2(0.0, e))) * 0.09;
+        vec3 n = normalize(vec3(-(g.x + r.x), 1.0, -(g.y + r.y)));
+        vec3 v = normalize(cameraPosition - vW);
         float fr = pow(1.0 - max(dot(n, v), 0.0), 4.0);
-        vec3 col = mix(uDeep, uSky, clamp(0.06 + fr * 0.9, 0.0, 1.0));
+        vec3 col = mix(uDeep, uSky, clamp(0.08 + fr * 0.9, 0.0, 1.0));
+        // Подсветка гребней (свет сквозь волну) и барашки.
+        col += vec3(0.05, 0.22, 0.2) * smoothstep(0.2, 1.4, vH);
+        float foam = smoothstep(1.05, 1.75, vH + vnoise(vW.xz * 0.12 + t * 0.2) * 0.7) * smoothstep(0.3, 0.7, vnoise(vW.xz * 0.45 - t * 0.3));
+        col = mix(col, uFoam, foam * 0.85);
         vec3 hv = normalize(v + uSun);
-        col += vec3(1.0, 0.95, 0.85) * pow(max(dot(n, hv), 0.0), 260.0) * 2.0;
+        col += vec3(1.0, 0.95, 0.85) * pow(max(dot(n, hv), 0.0), 220.0) * 1.8;
         float d = length(cameraPosition - vW);
         float f = clamp((d - 450.0) / 9050.0, 0.0, 1.0);
         col = mix(col, uFog, f);
-        gl_FragColor = vec4(col, mix(uOpacity + fr * 0.2, 1.0, f));
+        gl_FragColor = vec4(col, mix(uOpacity + fr * 0.2 + foam * 0.3, 1.0, f));
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }`,
   });
-  // Сетка гуще в центре не нужна: волны мелкие, 7×7 км хватает на обе сцены.
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(9000, 9000, 220, 220).rotateX(-Math.PI / 2), mat);
+  // Ближняя вода — сетка 30 м (зыбь от 74 м), дальняя — крупная, до горизонта.
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(9000, 9000, 300, 300).rotateX(-Math.PI / 2), mat);
   mesh.position.x = 900;
   mesh.renderOrder = 2;
-  // Открытое море до горизонта: крупная сетка чуть ниже (под ближней водой не видна).
   const far = new THREE.Mesh(new THREE.PlaneGeometry(60000, 60000, 60, 60).rotateX(-Math.PI / 2), mat);
-  far.position.set(-12000, -0.4, 0);
+  far.position.set(-12900, -1.2, 0);
   far.renderOrder = 1;
   mesh.add(far);
-  far.position.x -= 900;
   return {
     mesh,
     update: (t) => (uniforms.uTime.value = t),
     setOpacity: (a) => (uniforms.uOpacity.value = a),
   };
+}
+
+// Та же зыбь на CPU — для качки судов: высота и уклон поверхности в точке (x, z) в момент t.
+const SW = [[1, 0.35, 190, 0.95], [0.7, -0.6, 128, 0.6], [-0.3, 1, 96, 0.38], [1, 1.2, 74, 0.24]].map(([dx, dz, L, A]) => {
+  const n = Math.hypot(dx, dz), k = (2 * Math.PI) / L;
+  return {dx: dx / n, dz: dz / n, k, w: Math.sqrt(9.81 * k), A};
+});
+export function swellAt(x, z, t, out = {h: 0, gx: 0, gz: 0}) {
+  out.h = out.gx = out.gz = 0;
+  for (const s of SW) {
+    const ph = (s.dx * x + s.dz * z) * s.k - t * s.w;
+    out.h += s.A * Math.sin(ph);
+    const c = s.A * s.k * Math.cos(ph);
+    out.gx += c * s.dx; out.gz += c * s.dz;
+  }
+  return out;
 }
 
 // Дрейфующий лёд вокруг платформы. exclude(x, z) → true: льдину здесь не ставить.

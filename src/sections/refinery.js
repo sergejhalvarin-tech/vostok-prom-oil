@@ -51,122 +51,149 @@ export function buildRefinery(p, {sStop, cars = 20}) {
   for (let i = 0; i < 4; i++) box(p, 0.5, 0.6, 1.25, FM.white, a.x, a.y + 1.2, a.z - 1.3 + i * 0.85, kr);
   box(p, 2.8, 0.6, 2.6, FM.dark, a.x - 1.6, a.y + 0.6, a.z, kr);
 
-  // ---------- приёмная насосная и резервуары сырой нефти ----------
-  building(p, {x: X0 - 40, y, z: GZ - 22, w: 30, d: 14, h: 8, key: k, floors: 1});
+  // ---------- компактный завод: всё в местных координатах от центра площадки ----------
+  const P = (dx, dz) => [cx + dx, cz + dz];
+  const PY = y + 1.6;
+  // Приёмная насосная у западного конца эстакады и коллектор к резервуарам сырой нефти.
+  building(p, {x: X0 - 40, y, z: GZ - 22, w: 30, d: 14, h: 8, key: k, floors: 1, wall: FM.white, trim: FM.blue});
   pipe(p, [V(X0 + 4, colY, colZ), V(X0 - 18, colY, colZ), V(X0 - 18, colY, GZ - 16)], 0.45, M.oilGlass, k, {ground: y});
-  const tanks = [];
-  for (let i = 0; i < 4; i++) for (const dz of [160, 240]) tanks.push([-430 + i * 62, dz - 200]);
-  const tankPts = [];
-  for (const [dx, dz] of tanks) {
-    const t = makeTank(24, 17, 'floating', 0.55, false);
-    t.group.position.set(cx + dx, y + 0.3, cz + dz + 200);
+  const feed = [V(X0 - 40, PY, GZ - 30), V(X0 - 40, PY, cz + 248), V(cx - 275, PY, cz + 248), V(cx - 275, PY, cz + 214)];
+  pipe(p, feed, 0.5, M.oilGlass, k, {ground: y, R: 1.6});
+  for (const dx of [-330, -275, -220]) for (const dz of [140, 195]) {
+    const t = makeTank(18, 15, 'floating', 0.6, false);
+    t.group.position.set(cx + dx, y + 0.3, cz + dz);
     t.group.traverse((o) => (o.userData.key = k));
     p.add(t.group);
-    tankPts.push(V(cx + dx, y, cz + dz + 200));
   }
-  for (const [x0, x1, z0, z1] of [[cx - 462, cx - 212, cz + 128, cz + 274]]) {
-    for (const [A, B] of [[[x0, z0], [x1, z0]], [[x1, z0], [x1, z1]], [[x1, z1], [x0, z1]], [[x0, z1], [x0, z0]]]) {
-      const len = Math.hypot(B[0] - A[0], B[1] - A[1]);
-      box(p, len, 1.8, 0.6, FM.concrete, (A[0] + B[0]) / 2, y + 0.9, (A[1] + B[1]) / 2, k, Math.atan2(-(B[1] - A[1]), B[0] - A[0]));
-    }
+  for (const [A, B] of [[[-356, 112], [-194, 112]], [[-194, 112], [-194, 222]], [[-194, 222], [-356, 222]], [[-356, 222], [-356, 112]]]) {
+    const len = Math.hypot(B[0] - A[0], B[1] - A[1]);
+    box(p, len, 1.8, 0.6, FM.concrete, cx + (A[0] + B[0]) / 2, y + 0.9, cz + (A[1] + B[1]) / 2, k, Math.atan2(-(B[1] - A[1]), B[0] - A[0]));
   }
-  const PY = y + 1.6;
-  const feed = [V(X0 - 40, PY, GZ - 30), V(X0 - 40, PY, cz + 320), V(cx - 306, PY, cz + 320), V(cx - 306, PY, cz + 266)];
-  pipe(p, feed, 0.5, M.oilGlass, k, {ground: y, R: 1.6});
-  // Из резервуаров — на установки.
-  pipe(p, [V(cx - 250, PY, cz + 122), V(cx - 250, PY, cz + 70), V(cx - 180, PY, cz + 70), V(cx - 180, PY, cz - 10)], 0.5, FM.steel, k, {ground: y, R: 1.6});
+  pipe(p, [V(cx - 275, PY, cz + 112), V(cx - 275, PY, cz + 80), V(cx - 230, PY, cz + 80), V(cx - 230, PY, cz + 5)], 0.5, FM.steel, k, {ground: y, R: 1.6});
 
-  // ---------- установки завода ----------
-  const U = (dx, dz) => [cx + dx, cz + dz];
-  // АВТ.
-  {
-    const [ux, uz] = U(-180, -90);
-    furnace(p, {x: ux - 40, y, z: uz, key: k});
-    column(p, {x: ux, y, z: uz - 6, r: 3.2, h: 52, key: k, platforms: 7});
-    column(p, {x: ux + 16, y, z: uz - 6, r: 4.6, h: 34, key: k, platforms: 5});
-    for (let i = 0; i < 3; i++) column(p, {x: ux + 30 + i * 7, y, z: uz - 10, r: 1.4, h: 26 - i * 3, key: k, platforms: 3});
-    for (let i = 0; i < 6; i++) vessel(p, {x: ux + 10, y, z: uz + 16 + i * 4.5, r: 1.1, len: 9, key: k, m: FM.alu});
-    box(p, 34, 0.3, 14, FM.yellow, ux + 22, y + 9, uz + 26, k);
-    for (const [ox, oz] of [[-16, -6], [16, -6], [-16, 6], [16, 6]]) box(p, 0.5, 9, 0.5, FM.yellow, ux + 22 + ox, y + 4.5, uz + 26 + oz, k);
-    for (let i = 0; i < 6; i++) box(p, 4, 2.4, 4, FM.dark, ux + 7 + i * 5.5, y + 10.5, uz + 26, k);           // АВО
-  }
-  // Риформинг: реакторы-шары, колонна, печь.
-  {
-    const [ux, uz] = U(20, -90);
-    furnace(p, {x: ux, y, z: uz + 24, key: k, ry: Math.PI / 2});
-    for (let i = 0; i < 3; i++) {
-      const sx = ux + 30 + i * 12;
-      cyl(p, 3, 18, FM.alu, sx, y + 9, uz, k, null, 22);
-      const s = new THREE.Mesh(new THREE.SphereGeometry(3, 18, 10), FM.alu);
-      s.position.set(sx, y + 18, uz);
-      s.userData.key = k;
-      p.add(s);
+  // Яркие материалы установок.
+  const BR = {
+    blue: new THREE.MeshStandardMaterial({color: 0x1f6fe0, roughness: 0.45, metalness: 0.3}),
+    green: new THREE.MeshStandardMaterial({color: 0x23a05a, roughness: 0.45, metalness: 0.3}),
+    white: new THREE.MeshStandardMaterial({color: 0xf6f7f5, roughness: 0.35, metalness: 0.2}),
+  };
+  // Этажерка: стойки, перекрытия с ограждением, лестница, оборудование на ярусах.
+  const frame = (fx, fz, w, d, lv, m) => {
+    for (const [ox, oz] of [[-w / 2, -d / 2], [w / 2, -d / 2], [-w / 2, d / 2], [w / 2, d / 2], [0, -d / 2], [0, d / 2]]) box(p, 0.5, lv * 6, 0.5, m, fx + ox, y + lv * 3, fz + oz, k);
+    for (let i = 1; i <= lv; i++) {
+      box(p, w + 0.6, 0.25, d + 0.6, FM.tgrey, fx, y + i * 6, fz, k);
+      for (const s2 of [-1, 1]) box(p, w + 0.6, 0.06, 0.06, FM.yellow, fx, y + i * 6 + 1.1, fz + s2 * (d / 2 + 0.3), k);
+      for (let j = 0; j < 3; j++) vessel(p, {x: fx - w / 3 + j * w / 3, y: y + i * 6 + 0.1, z: fz, r: 0.75 + (j % 2) * 0.35, len: 3.5 + j, key: k, m: j % 2 ? BR.white : FM.alu});
     }
-    column(p, {x: ux + 72, y, z: uz + 8, r: 2.6, h: 44, key: k, platforms: 6});
+    for (let i = 0; i < lv * 6; i += 0.6) box(p, 0.9, 0.06, 0.25, FM.yellow, fx + w / 2 + 0.9, y + i + 0.3, fz - d / 2 + 1 + ((i * 0.4) % (d - 2)), k);
+  };
+  // Пучок цветных трубопроводов по осям.
+  const cols = [0xf6f7f5, 0x1f6fe0, 0xffc21f, 0x23a05a, 0xe8541e, 0x9aa4ab];
+  const bundle = (pts, n = 4, y0 = 7) => {
+    for (let i = 0; i < n; i++) {
+      const o = (i - (n - 1) / 2) * 0.9;
+      const m = new THREE.MeshStandardMaterial({color: cols[i % cols.length], metalness: 0.5, roughness: 0.35});
+      pipe(p, pts.map(([x, z]) => V(x + o * 0.3, y + y0 + i * 0.05, z + o)), 0.28 + (i % 2) * 0.12, m, k, {supports: false, R: 2});
+    }
+  };
+  // АВТ: печь, атмосферная и вакуумная колонны, стриппинги, АВО.
+  {
+    const [ux, uz] = P(-230, 30);
+    furnace(p, {x: ux - 20, y, z: uz, key: k});
+    column(p, {x: ux + 22, y, z: uz + 14, r: 3.0, h: 50, key: k, platforms: 7, m: BR.white});
+    column(p, {x: ux + 38, y, z: uz + 14, r: 4.3, h: 32, key: k, platforms: 5});
+    for (let i = 0; i < 3; i++) column(p, {x: ux + 50 + i * 6, y, z: uz + 6, r: 1.3, h: 24 - i * 3, key: k, platforms: 3, m: i % 2 ? BR.white : FM.alu});
+    frame(ux + 30, uz + 42, 30, 12, 2, FM.yellow);
+    for (let i = 0; i < 5; i++) box(p, 4, 2.2, 4, FM.dark, ux + 18 + i * 6, y + 13.2, uz + 42, k);
   }
-  // Шаровые резервуары сжиженного газа.
+  // Риформинг: печь, реакторы на колоннах, стабилизационная колонна.
+  {
+    const [ux, uz] = P(-80, 30);
+    furnace(p, {x: ux, y, z: uz, key: k, ry: Math.PI / 2});
+    for (let i = 0; i < 3; i++) {
+      const sx = ux + 22 + i * 11;
+      cyl(p, 2.8, 16, BR.white, sx, y + 8, uz + 2, k, null, 22);
+      const sp = new THREE.Mesh(new THREE.SphereGeometry(2.8, 20, 10), BR.white);
+      sp.position.set(sx, y + 16, uz + 2); sp.userData.key = k; p.add(sp);
+      box(p, 6, 0.3, 6, FM.yellow, sx, y + 12, uz + 2, k);
+    }
+    column(p, {x: ux + 62, y, z: uz + 20, r: 2.4, h: 42, key: k, platforms: 6});
+    frame(ux + 34, uz + 30, 26, 10, 3, BR.blue);
+  }
+  // Гидрокрекинг: толстостенные реакторы, колонна, этажерка, печь.
+  {
+    const [ux, uz] = P(70, 30);
+    for (let i = 0; i < 3; i++) column(p, {x: ux + i * 13, y, z: uz, r: 3.3, h: 30, key: k, platforms: 4, m: BR.white});
+    column(p, {x: ux + 48, y, z: uz + 22, r: 2.6, h: 46, key: k, platforms: 6});
+    frame(ux + 18, uz + 30, 34, 12, 3, BR.green);
+    furnace(p, {x: ux + 70, y, z: uz, key: k, ry: Math.PI / 2});
+  }
+  // Межустановочная эстакада и обвязка.
+  pipeRack(p, {x0: cx - 300, z0: cz - 8, x1: cx + 250, z1: cz - 8, y, key: k});
+  pipeRack(p, {x0: cx + 110, z0: cz - 8, x1: cx + 110, z1: cz + 205, y, key: k, levels: [6]});
+  bundle([[cx - 200, cz + 30], [cx - 200, cz - 8], [cx - 100, cz - 8]], 3);
+  bundle([[cx - 40, cz + 30], [cx - 40, cz - 8], [cx + 60, cz - 8]], 3, 8);
+  bundle([[cx + 100, cz + 30], [cx + 100, cz - 8], [cx + 140, cz - 8]], 3, 9);
+  // Дымовые трубы печей — красно-белые.
+  for (const [dx, dz, H] of [[-250, -35, 90], [-60, -38, 80], [150, -36, 76]]) {
+    for (let i = 0; i < 8; i++) cyl(p, 2.8 - i * 0.15, H / 8, i % 2 ? FM.white : FM.red, cx + dx, y + H / 16 + i * H / 8, cz + dz, k, null, 20, 2.8 - (i + 1) * 0.15);
+  }
+  // Градирни.
+  for (let i = 0; i < 4; i++) {
+    const [gx, gz] = P(-330 + i * 22, -235);
+    box(p, 18, 11, 18, BR.blue, gx, y + 5.5, gz, k);
+    cyl(p, 6.5, 3, FM.tgrey, gx, y + 12.5, gz, k, null, 24);
+    box(p, 18.4, 0.6, 18.4, FM.white, gx, y + 11, gz, k);
+  }
+  // Шаровые резервуары газа: белые с синим поясом.
   for (let i = 0; i < 3; i++) {
-    const [sx, sz] = U(200 + i * 26, -170);
-    const sp = new THREE.Mesh(new THREE.SphereGeometry(9, 28, 16), FM.white);
-    sp.position.set(sx, y + 13, sz);
-    sp.userData.key = k;
-    p.add(sp);
+    const [sx, sz] = P(150 + i * 26, -225);
+    const sp = new THREE.Mesh(new THREE.SphereGeometry(9, 28, 16), BR.white);
+    sp.position.set(sx, y + 13, sz); sp.userData.key = k; p.add(sp);
+    const belt = new THREE.Mesh(new THREE.TorusGeometry(9.05, 0.5, 6, 40), BR.blue);
+    belt.rotation.x = Math.PI / 2; belt.position.set(sx, y + 13, sz); belt.userData.key = k; p.add(belt);
     for (let j = 0; j < 8; j++) {
-      const ang = j / 8 * Math.PI * 2;
+      const ang = (j / 8) * Math.PI * 2;
       link(p, V(sx + Math.cos(ang) * 8.2, y, sz + Math.sin(ang) * 8.2), V(sx + Math.cos(ang) * 8.6, y + 13, sz + Math.sin(ang) * 8.6), 0.35, FM.steel, k);
     }
-    link(p, V(sx + 9, y, sz), V(sx + 2, y + 21, sz), 0.4, FM.yellow, k);
+    link(p, V(sx + 9, y, sz), V(sx + 2, y + 21, sz), 0.35, FM.yellow, k);
   }
-  // Эстакады трубопроводов.
-  pipeRack(p, {x0: cx - 240, z0: cz - 20, x1: cx + 160, z1: cz - 20, y, key: k});
-  pipeRack(p, {x0: cx + 160, z0: cz - 180, x1: cx + 160, z1: cz - 20, y, key: k});
-  pipeRack(p, {x0: cx - 180, z0: cz - 20, x1: cx - 180, z1: cz + 70, y, key: k, levels: [6]});
-  // Градирни (вентиляторные).
-  for (let i = 0; i < 4; i++) {
-    const [gx, gz] = U(-60 + i * 18, -200);
-    box(p, 16, 10, 16, FM.wall2, gx, y + 5, gz, k);
-    cyl(p, 6, 3, FM.tgrey, gx, y + 11.5, gz, k, null, 24);
-  }
-  const fl = flare(p, {x: cx + 470, y, z: cz - 300, H: 90, key: k});
-  // Плотная застройка завода: технологические установки на сетке участков.
-  const busy = [[cx + 470, cz - 300, 70], [cx - 33, cz - 200, 50], [cx + 226, cz - 170, 40], [cx - 450, cz - 120, 40], [cx - 180, cz - 90, 70], [cx + 20, cz - 90, 70], [cx - 60, cz - 330, 6], [cx + 140, cz - 360, 6]];
-  let seed = 7;
-  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  for (let gx = cx - 500; gx <= cx + 440; gx += 72) for (let gz = cz - 380; gz <= cz - 150; gz += 64) {
-    if (busy.some(([bx, bz, rr]) => Math.hypot(gx - bx, gz - bz) < rr + 30)) continue;
-    plotUnit(p, gx, y, gz, rnd, k);
-  }
-  for (let gx = cx - 160; gx <= cx + 20; gx += 72) for (let gz = cz + 100; gz <= cz + 260; gz += 80) plotUnit(p, gx, y, gz, rnd, k);
-  // Товарный парк: резервуары нефтепродуктов.
-  for (let i = 0; i < 6; i++) {
-    const t = makeTank(14, 14, i % 2 ? 'dome' : 'floating', 0.6, false);
-    t.group.position.set(cx + 240 + (i % 3) * 40, y + 0.3, cz - 40 + Math.floor(i / 3) * 44);
+  // Товарный парк.
+  for (let i = 0; i < 8; i++) {
+    const t = makeTank(12, 13, i % 2 ? 'dome' : 'floating', 0.6, false);
+    t.group.position.set(cx - 150 + (i % 4) * 32, y + 0.3, cz - 205 + Math.floor(i / 4) * 34);
     t.group.traverse((o) => (o.userData.key = k));
     p.add(t.group);
   }
-  // Высокие дымовые трубы — силуэт завода.
-  for (const [dx, dz, H] of [[-60, -330, 120], [140, -360, 100]]) {
-    for (let i = 0; i < 8; i++) cyl(p, 3.4 - i * 0.18, H / 8, i % 2 ? FM.white : FM.red, cx + dx, y + H / 16 + i * H / 8, cz + dz, k, null, 20, 3.4 - (i + 1) * 0.18);
+  const fl = flare(p, {x: cx + 335, y, z: cz - 265, H: 75, key: k});
+  // Технологические участки в оставшихся местах — плотная застройка.
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (const [dx, dz] of [[190, 40], [270, 40], [190, -120], [270, -120], [-330, -120], [-250, -120], [-170, -120]]) plotUnit(p, cx + dx, y, cz + dz, rnd, k);
+  // Операторная, администрация, подстанция, пожарная станция.
+  building(p, {x: cx + 300, y, z: cz + 150, w: 40, d: 14, h: 12, key: k, floors: 3, wall: FM.white, trim: FM.blue});
+  building(p, {x: cx - 120, y, z: cz + 150, w: 34, d: 12, h: 7, key: k, floors: 2, wall: FM.white, trim: FM.red});
+  substation(p, {x: cx + 20, y, z: cz + 165, key: k});
+  fireStation(p, {x: cx + 220, y, z: cz + 170, key: k});
+  // Газоны между установками.
+  const lawn = new THREE.MeshStandardMaterial({color: 0x5fbf45, roughness: 1});
+  for (const [dx, dz, w, d] of [[-120, -95, 120, 50], [60, -95, 140, 50], [-290, 70, 80, 40], [300, 220, 120, 50], [-60, 210, 100, 40], [330, -200, 60, 120]]) {
+    box(p, w, 0.15, d, lawn, cx + dx, y + 0.1, cz + dz, k).userData.noCast = true;
   }
-  // Административный корпус, подстанция, пожарная станция, ЛЭП.
-  building(p, {x: cx - 450, y, z: cz - 120, w: 46, d: 16, h: 13, key: k, floors: 3});
-  substation(p, {x: cx + 80, y, z: cz + 180, key: k});
-  fireStation(p, {x: cx + 260, y, z: cz + 150, key: k});
-  powerLine(p, [[cx + 80, y, cz + 200 + 260], [cx + 80, heightAt(cx + 80, cz + 900), cz + 900], [cx + 140, heightAt(cx + 140, cz + 1500), cz + 1500]].map(([px, py, pz], i) => [px, i ? py : y, pz]), k);
-  // Дороги, мачты освещения, молниеотводы.
-  roads(p, y, [[cx - 520, cz + 300, cx + 520, cz + 300], [cx - 520, cz - 425, cx + 520, cz - 425], [cx - 520, cz - 425, cx - 520, cz + 300], [cx + 400, cz - 425, cx + 400, cz + 300]], k);
-  for (const [dx, dz] of [[-420, 290], [-100, 290], [200, 290], [400, 100], [-420, -80], [0, -240], [300, -240]]) lightMast(p, cx + dx, y, cz + dz, 26, k);
-  for (const [dx, dz] of [[-470, 290], [-200, 290], [-470, 110], [-200, 110]]) buildLightningRod(p, cx + dx, cz + dz, 46, y);
-  // Ограждение.
-  const hw = REFINERY.w / 2 - 22, hd = REFINERY.d / 2 - 22;
+  // Дороги, мачты освещения, молниеотводы, ограждение.
+  roads(p, y, [[cx - 370, cz + 100, cx + 370, cz + 100], [cx - 370, cz - 60, cx + 370, cz - 60], [cx - 370, cz - 285, cx + 370, cz - 285],
+    [cx - 370, cz - 285, cx - 370, cz + 230], [cx + 370, cz - 285, cx + 370, cz + 230], [cx - 20, cz - 285, cx - 20, cz - 60]], k);
+  for (const [dx, dz] of [[-360, 230], [-120, 100], [120, 100], [360, 100], [-360, -60], [0, -60], [360, -60], [-200, -285], [200, -285]]) lightMast(p, cx + dx, y, cz + dz, 26, k);
+  for (const [dx, dz] of [[-362, 230], [-188, 230], [-362, 106], [-188, 106]]) buildLightningRod(p, cx + dx, cz + dz, 44, y);
+  const hw = REFINERY.w / 2 - 8, hd = REFINERY.d / 2 - 8;
   const fence = new THREE.MeshStandardMaterial({color: 0x9aa4ad, transparent: true, opacity: 0.35, depthWrite: false});
-  for (const [w, d, ox, oz] of [[hw * 2, 0.06, 0, -hd], [hw * 2, 0.06, 0, hd + 40], [0.06, hd + 380, -hw, (380 - hd) / 2], [0.06, hd * 2 + 40, hw, 20]]) {
+  for (const [w, d, ox, oz] of [[hw * 2, 0.06, 0, -hd], [hw * 2, 0.06, 0, hd + 30], [0.06, hd * 2 - 30, -hw, -15], [0.06, hd * 2 + 30, hw, 15]]) {
     const f = box(p, w, 2.4, d, fence, cx + ox, y + 1.2, cz + oz);
     f.userData.dynamic = true;
   }
   // Путь нефти: из цистерн — в коллектор, в насосную и в резервуар.
   const c0 = carX[6];
-  const flowPts = [V(c0.x, y + 1.1, TZ - 0.5), V(c0.x, colY, colZ + 0.4), V(X0 - 18, colY, colZ), ...feed.slice(0)];
+  const flowPts = [V(c0.x, y + 1.1, TZ - 0.5), V(c0.x, colY, colZ + 0.4), V(X0 - 18, colY, colZ), ...feed];
   return {update: (t) => fl.update(t), flow: flowPts, y, rack: {X0, X1, TZ}};
 }
 
